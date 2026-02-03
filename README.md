@@ -1,5 +1,7 @@
 # Standalone SimplicityHL Compiler for WASM
 
+[dev build (alpha)](https://github.com/hackbg/simf/releases/download/20260203/fadroma_simf_bg.wasm)
+
 > This repo is part of [Fadroma](https://github.com/hackbg/fadroma), the cross-chain framework.
 >
 > We're building an example Simplicity dApp with it [here](https://github.com/hackbg/simf-app),
