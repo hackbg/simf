@@ -1,2 +1,3 @@
-simc
 pkg/*.wasm
+target
+.direnv

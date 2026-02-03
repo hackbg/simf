@@ -1,0 +1,6 @@
+[submodule "rust-simplicity"]
+	path = deps/rust-simplicity
+	url = https://github.com/BlockstreamResearch/rust-simplicity
+[submodule "deps/simplicityhl"]
+	path = deps/simplicityhl
+	url = https://github.com/BlockstreamResearch/simplicityhl
