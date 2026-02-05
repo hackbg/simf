@@ -1,3 +1,4 @@
 pkg/*.wasm
+pkg/README.md
 target
 .direnv
