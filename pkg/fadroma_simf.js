@@ -251,9 +251,7 @@ export class Program {
         wasm.__wbg_program_free(ptr, 0);
     }
     /**
-     * Generate a spend transaction.
-     *
-     * Requires input transaction to program's P2TR address.
+     * Generate a transaction spending funds from the program's P2TR address.
      * @param {object} options
      * @returns {object}
      */
@@ -261,6 +259,20 @@ export class Program {
         if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
         _assertNum(this.__wbg_ptr);
         const ret = wasm.program_spend(this.__wbg_ptr, options);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * Generate a transaction funding the program's P2TR address.
+     * @param {object} options
+     * @returns {object}
+     */
+    fund(options) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ret = wasm.program_fund(this.__wbg_ptr, options);
         if (ret[2]) {
             throw takeFromExternrefTable0(ret[1]);
         }

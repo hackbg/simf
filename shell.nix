@@ -6,4 +6,6 @@ in sh "fadroma-simf" [
   pkgs.cloc
   pkgs.binaryen
   pkgs.python3
+  pkgs.bacon
+  pkgs.rustup
 ] {}

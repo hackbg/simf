@@ -14,11 +14,13 @@ export class Program {
   free(): void;
   [Symbol.dispose](): void;
   /**
-   * Generate a spend transaction.
-   *
-   * Requires input transaction to program's P2TR address.
+   * Generate a transaction spending funds from the program's P2TR address.
    */
   spend(options: object): object;
+  /**
+   * Generate a transaction funding the program's P2TR address.
+   */
+  fund(options: object): object;
   /**
    * Use this in JS to get the properties of the compiled program.
    */
@@ -45,10 +47,11 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
   readonly memory: WebAssembly.Memory;
+  readonly program_spend: (a: number, b: any) => [number, number, number];
+  readonly program_fund: (a: number, b: any) => [number, number, number];
   readonly __wbg_program_free: (a: number, b: number) => void;
   readonly cmr_to_p2tr: (a: any) => [number, number, number];
   readonly compile: (a: any, b: any) => [number, number, number];
-  readonly program_spend: (a: number, b: any) => [number, number, number];
   readonly program_toJSON: (a: number) => any;
   readonly program_toString: (a: number) => [number, number];
   readonly rust_0_6_malloc: (a: number) => number;
