@@ -120,5 +120,4 @@ macro_rules! obj(($($id:literal = $val:expr),+ $(,)?) => {{
     object }});
 // Above macros are available in subsequent modules:
 mod simf; pub use self::simf::*;
-mod simf_impl; pub use self::simf_impl::*;
 mod simf_parse; pub use self::simf_parse::*;
