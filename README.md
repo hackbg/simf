@@ -23,9 +23,8 @@ See `Justfile`.
   Sending funds to this address is equivalent to deploying the program.
 
 * If you have SimplicityHL source code, you can **call `compile` to compute its CMR and P2TR**.
-
-  * **WIP:** The returned `Program` object's `spend` method allows you to build a transaction
-    that consumes the funds locked in the deployed Simplicity program.
+  The returned `Program` object's `tx_fund` and `tx_spend` generate transactions for
+  respectively deploying and invoking the SimplicityHL program.
 
 ## Caveats
 

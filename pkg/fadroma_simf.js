@@ -251,34 +251,6 @@ export class Program {
         wasm.__wbg_program_free(ptr, 0);
     }
     /**
-     * Generate a transaction spending funds from the program's P2TR address.
-     * @param {object} options
-     * @returns {object}
-     */
-    spend(options) {
-        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
-        _assertNum(this.__wbg_ptr);
-        const ret = wasm.program_spend(this.__wbg_ptr, options);
-        if (ret[2]) {
-            throw takeFromExternrefTable0(ret[1]);
-        }
-        return takeFromExternrefTable0(ret[0]);
-    }
-    /**
-     * Generate a transaction funding the program's P2TR address.
-     * @param {object} options
-     * @returns {object}
-     */
-    fund(options) {
-        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
-        _assertNum(this.__wbg_ptr);
-        const ret = wasm.program_fund(this.__wbg_ptr, options);
-        if (ret[2]) {
-            throw takeFromExternrefTable0(ret[1]);
-        }
-        return takeFromExternrefTable0(ret[0]);
-    }
-    /**
      * Use this in JS to get the properties of the compiled program.
      * @returns {object}
      */
@@ -287,6 +259,34 @@ export class Program {
         _assertNum(this.__wbg_ptr);
         const ret = wasm.program_toJSON(this.__wbg_ptr);
         return ret;
+    }
+    /**
+     * Generate a transaction funding the program's P2TR address.
+     * @param {object} options
+     * @returns {object}
+     */
+    tx_fund(options) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ret = wasm.program_tx_fund(this.__wbg_ptr, options);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * Generate a transaction spending funds from the program's P2TR address.
+     * @param {object} options
+     * @returns {object}
+     */
+    tx_spend(options) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ret = wasm.program_tx_spend(this.__wbg_ptr, options);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
     }
     /**
      * Programs stringify to their P2TR addresses.
@@ -482,9 +482,6 @@ function __wbg_get_imports() {
         const ret = arg0.length;
         _assertNum(ret);
         return ret;
-    }, arguments) };
-    imports.wbg.__wbg_log_1d990106d99dacb7 = function() { return logError(function (arg0) {
-        console.log(arg0);
     }, arguments) };
     imports.wbg.__wbg_new_1ba21ce319a06297 = function() { return logError(function () {
         const ret = new Object();

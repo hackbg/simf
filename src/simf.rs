@@ -9,6 +9,29 @@ pub fn cmr_to_p2tr (cmr: JsValue) -> Maybe<JsString> {
     console_error_panic_hook::set_once();
     Ok(format!("{}", script_to_p2tr(Script::from(Input::bytes(cmr)?))?).into())
 }
+/// Generate P2TR (pay-to-taproot) [Address] from a [Script]'s [Cmr].
+pub fn script_to_p2tr (script: Script) -> Maybe<Address> {
+    Ok(taproot_to_p2tr(&script_to_taproot(script)?))
+}
+/// Generate P2TR (pay-to-taproot) [Address] from [TaprootSpendInfo].
+pub fn taproot_to_p2tr (tap: &TaprootSpendInfo, /* TODO: kind: Option<AddressParams>*/) -> Address {
+    let key = tap.internal_key();
+    let root = tap.merkle_root();
+    Address::p2tr(secp256k1::SECP256K1, key, root, None, &AddressParams::LIQUID_TESTNET)
+}
+/// Generate [TaprootSpendInfo] for a given [Script].
+pub fn script_to_taproot (script: Script) -> Maybe<TaprootSpendInfo> {
+    let tap = TaprootBuilder::new();
+    let ver = expected!("use constant leaf version": LeafVersion::from_u8(0xbe))?;
+    let key = expected!("parse unspendable key": hex::decode(
+        // FIXME: Magic constant (unspendable key)
+        "50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0"
+    ))?;
+    let key = expected!("parse unspendable key": secp256k1::XOnlyPublicKey::from_slice(&key))?;
+    let tap = expected!("taproot: add leaf": tap.add_leaf_with_ver(0, script, ver))?;
+    let tap = expected!("taproot: finalize": tap.finalize(&secp256k1::SECP256K1, key))?;
+    Ok(tap)
+}
 /// Compile a SimplicityHL program.
 #[wasm_bindgen] pub fn compile (source: JsString, options: Object) -> Maybe<Program> {
     console_error_panic_hook::set_once();
@@ -35,6 +58,16 @@ pub fn cmr_to_p2tr (cmr: JsValue) -> Maybe<JsString> {
     pub(crate) source:   Arc<str>,
 }
 #[wasm_bindgen] impl Program {
+    /// Internal constructor.
+    fn new (source: &str, args: Arguments, debug: bool, prune: bool) -> Maybe<Self> {
+        let compiled = CompiledProgram::new(source, args.clone(), debug);
+        let compiled = expected!("compile failed": compiled)?;
+        let commit   = compiled.commit();
+        let script   = Script::from(commit.cmr().to_byte_array().to_vec());
+        let source   = source.into();
+        let p2tr     = script_to_p2tr(script.clone())?;
+        Ok(Self { source, p2tr, debug, prune, args, compiled, commit, script, })
+    }
     /// Use this in JS to get the properties of the compiled program.
     #[wasm_bindgen(js_name = toJSON)] pub fn to_json (&self) -> Object {
         Output::program(&self).unwrap_or_else(|e|JsValue::from(e).into())
@@ -43,26 +76,91 @@ pub fn cmr_to_p2tr (cmr: JsValue) -> Maybe<JsString> {
     #[wasm_bindgen(js_name = toString)] pub fn to_string (&self) -> String {
         format!("{}", &self.p2tr)
     }
-    /// Internal constructor.
-    fn new (source: &str, args: Arguments, debug: bool, prune: bool) -> Maybe<Self> {
-        let compiled = CompiledProgram::new(source, args.clone(), debug);
-        let compiled = expected!("compile failed": compiled)?;
-        let commit   = compiled.commit();
-        let script   = Script::from(commit.cmr().to_byte_array().to_vec());
-        let source   = source.into();
-        let p2tr     = taproot_to_p2tr(&script_to_taproot(script.clone())?);
-        Ok(Self { source, p2tr, debug, prune, args, compiled, commit, script, })
+    /// Generate a transaction funding the program's P2TR address.
+    #[wasm_bindgen] pub fn tx_fund (&self, options: Object) -> Maybe<Object> {
+        asserted!(options.is_object());
+        let tx_in  = get!(options, "tx",     Input::tx)?;
+        let from   = get!(options, "from",   Input::address)?;
+        let amount = get!(options, "amount", Input::sats)?;
+        let fee    = get!(options, "fee",    Input::sats)?;
+        let (input, asset_id, balance) = find_tx_ins(&tx_in, &from)?;
+        tx_json(&tx_in, &Transaction {
+            version: 2, lock_time: LockTime::ZERO, input,
+            output: tx_out_split(
+                from.clone(),
+                self.p2tr.clone(),
+                asset_id,
+                balance,
+                amount,
+                fee
+            )?,
+        })
     }
-    pub(crate) fn tx_ins (&self, input: &Transaction) -> Maybe<(Vec<TxIn>, AssetId, u64)> {
-        let (previous, utxo) = find_utxo(input, &self.p2tr)?;
-        let asset_id = required!("utxo: asset cloaked": utxo.asset.explicit())?;
-        let balance  = required!("utxo: value cloaked": utxo.value.explicit())?;
-        Ok((tx_script_ins(previous), asset_id, balance))
-    }
-    pub(crate) fn tx_outs (&self, to: Address, asset_id: AssetId, balance: u64, value: u64, fee: u64) -> Maybe<Vec<TxOut>> {
-        tx_script_outs(&self.p2tr, to, asset_id, balance, value, fee)
+    /// Generate a transaction spending funds from the program's P2TR address.
+    #[wasm_bindgen] pub fn tx_spend (&self, options: Object) -> Maybe<Object> {
+        asserted!(options.is_object());
+        let tx_in   = get!(options, "tx",      Input::tx)?;
+        let to      = get!(options, "to",      Input::address)?;
+        let amount  = get!(options, "amount",  Input::sats)?;
+        let fee     = get!(options, "fee",     Input::sats)?;
+        let witness = get!(options, "witness", Input::witness)?;
+        let (input, asset_id, balance) = find_tx_ins(&tx_in, &self.p2tr)?;
+        let tx_out  = Arc::new(Transaction {
+            version: 2, lock_time: LockTime::ZERO, input,
+            output: tx_out_split(
+                self.p2tr.clone(),
+                to,
+                asset_id,
+                balance,
+                amount,
+                fee)?
+        });
+        let mut pset = PartiallySignedTransaction::from_tx(tx_out.as_ref().clone());
+        let input_utxos = pset.inputs().iter().enumerate().map(|(n, input)| match input.witness_utxo {
+            None => Err(JsError::new(&format!("missing witness utxo {n}"))),
+            Some(ref utxo) => Ok(ElementsUtxo {
+                script_pubkey: utxo.script_pubkey.clone(),
+                asset: utxo.asset,
+                value: utxo.value, }) }).collect::<Maybe<Vec<_>>>()?;
+        pset.inputs_mut()[0].final_script_witness = Some(final_script_witness(
+            script_control_block(&self.script)?,
+            self.script.clone().into_bytes(),
+            expected!("satisfy": self.compiled.satisfy_with_env(
+                witness,
+                Some(&ElementsEnv::new(tx_out, input_utxos, 0, self.compiled.commit().cmr(),
+                    ControlBlock::from_slice(&script_control_block(&self.script)?)?,
+                    None, BlockHash::from_str( // FIXME: allow non-elementsregtest
+                        "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"
+                    )?))))?)?);
+        tx_json(&tx_in, &expected!("extract final tx": pset.extract_tx())?)
     }
 }
+/// Generate transaction output for spending part or all of the funds at an address.
+pub(crate) fn tx_out_split (
+    owner: Address, spender: Address, asset_id: AssetId, balance: u64, amount: u64, fee: u64,
+) -> Maybe<Vec<TxOut>> {
+    asserted!(amount + fee <= balance);
+    let spent = tx_script_out(asset_id, spender, amount);
+    Ok(if amount + fee == balance {
+        debug!("Will spend {amount} + {fee} = {balance}");
+        vec![TxOut::new_fee(fee, asset_id), spent]
+    } else {
+        let remain = balance - (amount + fee);
+        debug!("Will spend {amount} + {fee} = {balance} - {remain}");
+        let remain = tx_script_out(asset_id, owner, remain);
+        vec![TxOut::new_fee(fee, asset_id), spent, remain]
+    })
+}
+fn tx_script_out (asset_id: AssetId, to: Address, value: u64) -> TxOut {
+    TxOut {
+        script_pubkey: to.script_pubkey(),
+        value:   TxValue::Explicit(value),
+        asset:   Asset::Explicit(asset_id),
+        nonce:   Nonce::Null,
+        witness: TxOutWitness::default(),
+    }
+}
+/// Wrap transaction info returned to JS-land.
 pub(crate) fn tx_json (tx_in: &Transaction, tx_out: &Transaction) -> Maybe<Object> {
     let bytes = tx_out.serialize();
     Ok(obj! {
@@ -72,81 +170,53 @@ pub(crate) fn tx_json (tx_in: &Transaction, tx_out: &Transaction) -> Maybe<Objec
         "hex"    = hex::encode(&bytes),
     })
 }
-pub fn tx_script_ins (previous_output: OutPoint) -> Vec<TxIn> {
-    vec![TxIn {
-        previous_output,
-        is_pegin:       false,
-        script_sig:     Script::new(),
-        sequence:       Sequence::MAX,
-        asset_issuance: AssetIssuance::null(),
-        witness:        TxInWitness::empty(),
-    }]
+pub(crate) fn find_tx_ins (input: &Transaction, address: &Address)
+    -> Maybe<(Vec<TxIn>, AssetId, u64)>
+{
+    let (previous, utxo) = find_utxo(input, address)?;
+    let asset_id = required!("utxo: asset cloaked": utxo.asset.explicit())?;
+    let balance  = required!("utxo: value cloaked": utxo.value.explicit())?;
+    let inputs = vec![TxIn {
+        previous_output: previous,
+        is_pegin:        false,
+        script_sig:      Script::new(),
+        sequence:        Sequence::MAX,
+        asset_issuance:  AssetIssuance::null(),
+        witness:         TxInWitness::empty(),
+    }];
+    Ok((inputs, asset_id, balance))
 }
-pub fn tx_script_outs (
-    program:  &Address,
-    spender:  Address,
-    asset_id: AssetId,
-    balance:  u64,
-    value:    u64,
-    cost:     u64,
-) -> Maybe<Vec<TxOut>> {
-    asserted!(value + cost <= balance);
-    let fee = TxOut::new_fee(cost, asset_id);
-    let spent = tx_script_out(asset_id, spender, value);
-    Ok(if value + cost == balance {
-        log!("Will spend {value} + {cost} = {balance}");
-        vec![fee, spent]
-    } else {
-        let remain = balance - (value + cost);
-        log!("Will spend {value} + {cost} = {balance} - {remain}");
-        let remain = tx_script_out(asset_id, program.clone(), remain);
-        vec![fee, spent, remain]
-    })
-}
-/// Generate P2TR (pay-to-taproot) [Address] from a [Script]'s [Cmr].
-pub fn script_to_p2tr (script: Script) -> Maybe<Address> {
-    Ok(taproot_to_p2tr(&script_to_taproot(script)?))
-}
-/// Generate P2TR (pay-to-taproot) [Address] from [TaprootSpendInfo].
-pub fn taproot_to_p2tr (tap: &TaprootSpendInfo, /* TODO: kind: Option<AddressParams>*/) -> Address {
-    let key = tap.internal_key();
-    let root = tap.merkle_root();
-    Address::p2tr(secp256k1::SECP256K1, key, root, None, &AddressParams::LIQUID_TESTNET)
-}
-/// Generate [TaprootSpendInfo] for a given [Script].
-pub fn script_to_taproot (script: Script) -> Maybe<TaprootSpendInfo> {
-    let tap = TaprootBuilder::new();
-    let ver = expected!("use constant leaf version": LeafVersion::from_u8(0xbe))?;
-    let key = expected!("parse unspendable key": hex::decode(
-        // FIXME: Magic constant (unspendable key)
-        "50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0"
-    ))?;
-    let key = expected!("parse unspendable key": secp256k1::XOnlyPublicKey::from_slice(&key))?;
-    let tap = expected!("taproot: add leaf": tap.add_leaf_with_ver(0, script, ver))?;
-    let tap = expected!("taproot: finalize": tap.finalize(&secp256k1::SECP256K1, key))?;
-    Ok(tap)
-}
-pub fn tx_script_out (asset_id: AssetId, to: Address, value: u64) -> TxOut {
-    TxOut {
-        script_pubkey: to.script_pubkey(),
-        value:   TxValue::Explicit(value),
-        asset:   Asset::Explicit(asset_id),
-        nonce:   Nonce::Null,
-        witness: TxOutWitness::default(),
-    }
-}
-pub fn find_utxo (tx: &Transaction, p2tr: &Address) -> Maybe<(OutPoint, TxOut)> {
+pub fn find_utxo (tx: &Transaction, address: &Address) -> Maybe<(OutPoint, TxOut)> {
     let mut previous: Option<OutPoint> = Default::default();
     let mut utxo:     Option<TxOut>    = Default::default();
     for (vout, output) in tx.output.iter().enumerate() {
         debug!("vout={vout} output={output:?} value={:?}", &output.value);
-        if output.script_pubkey == p2tr.script_pubkey() {
+        if output.script_pubkey == address.script_pubkey() {
             previous = Some(OutPoint::new(tx.txid(), vout as u32));
             utxo     = Some(output.clone());
             break;
         }
     }
     Ok((required!(previous)?, required!(utxo)?))
+}
+pub fn final_script_witness (
+    control: Vec<u8>, script: Vec<u8>, satisfied: SatisfiedProgram,
+) -> Maybe<Vec<Vec<u8>>> {
+    let redeem = satisfied.redeem();
+    let bounds = redeem.bounds();
+    asserted!(bounds.cost.is_consensus_valid());
+    let (program, witness) = redeem.encode_to_vec();
+    let mut final_script_witness = vec![witness, program, script, control];
+    // Add padding to the script witness if budget is exceeded
+    if let Some(padding_bytes) = bounds.cost.get_padding(&final_script_witness) {
+        // Annex has to be removed from the stack
+        // https://github.com/ElementsProject/elements/blob/9748c00c3344b815d75c4b5c251b341fb34fa80f/src/script/interpreter.cpp#L3275
+        final_script_witness.push(padding_bytes);
+    } else {
+        //println!("No padding needed");
+    }
+    asserted!(bounds.cost.is_budget_valid(&final_script_witness));
+    Ok(final_script_witness)
 }
 pub fn script_control_block (script: &Script) -> Maybe<Vec<u8>> {
     let tap = script_to_taproot(script.clone())?;
@@ -156,7 +226,6 @@ pub fn script_control_block (script: &Script) -> Maybe<Vec<u8>> {
     // (control[0] & TAPROOT_LEAF_MASK) == TAPROOT_LEAF_TAPSIMPLICITY)
     assert_eq!(bytes[0] & 0xfe, 0xbe);
     Ok(bytes)
-
         // FIXME? take control block from matching tap_scripts of input:
         //for (cb, script_ver) in &input.tap_scripts {
             //if script_ver.1 == leaf_version() && &script_ver.0[..] == cmr.as_ref() {
@@ -172,84 +241,47 @@ pub fn script_control_block (script: &Script) -> Maybe<Vec<u8>> {
         //]))?;
 }
 
-//#[wasm_bindgen]
-//pub fn compile (source: JsString, options: Object) -> Maybe<Object> {
-    //console_error_panic_hook::set_once();
-    //let result         = Object::new();
-    //let source         = source.as_string().unwrap_or_default();
-    //let (debug, prune) = set_build_options(&result, &options)?;
-    //let arguments      = set_build_arguments(&result, &options)?;
-    //let compiled       = attempt!(CompiledProgram::new(source, arguments, debug));
-    //let commit  = compiled.commit();
-    //set!(result, "commit", format!("{}", hex::encode(&commit.to_vec_without_witness())));
-    //let (cmr, amr, ihr) = (commit.cmr(), commit.amr(), commit.ihr());
-    //set!(result, "cmr", format!("{}", hex::encode(&cmr.to_byte_array())));
-    //set!(result, "amr", format!("{}", hex::encode(&amr.map(|x|x.to_byte_array()).unwrap_or_default())));
-    //set!(result, "ihr", format!("{}", hex::encode(&ihr.map(|x|x.to_byte_array()).unwrap_or_default())));
-    //let tap = TaprootBuilder::new();
-    //let tap = attempt!(tap.add_leaf_with_ver(
-        //0,
-        //Script::from(cmr.to_byte_array().to_vec()),
-        //LeafVersion::from_u8(0xbe).expect("constant leaf version")
-    //));
-    //let tap = attempt!(tap.finalize(
-        //&secp256k1::SECP256K1,
-        //attempt!(secp256k1::XOnlyPublicKey::from_slice(&hex::decode(UNSPENDABLE).unwrap())
-    //)));
-    //let p2tr = cmr_to_p2tr_impl(&cmr.to_byte_array());
-    //set!(result, "p2tr", format!("{p2tr}"));
-    //Ok(result)
-    ////unimplemented!();
-    ////let witness        = set_build_witness(&result, &options)?;
-    ////let program_bytes  = set_build_bytes(&result, &compiled, &witness, prune)?;
-    ////let _assembly      = set_build_assembly(&result, program_bytes)?;
-    ////Ok(result)
-//}
-
-
-//fn set_build_source (result: &Object, source: &JsString) -> Maybe<String> {
-    //let source = source.as_string().unwrap_or_default();
-    //set!(result, "source", JsString::from(source.clone()));
-    //Ok(source)
-//}
-
-//fn set_build_options (result: &Object, options: &Object) -> Maybe<(bool, bool)> {
-    //let debug = get!(options, "debug").is_truthy();
-    //set!(result, "debug", Boolean::from(debug));
-    //let prune = get!(options, "prune").is_truthy();
-    //set!(result, "prune", Boolean::from(prune));
-    //Ok((debug, prune))
-//}
-
-//fn set_build_arguments (result: &Object, options: &Object) -> Maybe<Arguments> {
-    //let arguments = get!(options, "arguments");
-    //let arguments: Option<Arguments> = if arguments.is_object() {
-        //set!(result, "arguments", arguments.clone());
-        //if let Some(s) = JSON::stringify(&arguments)?.as_string() {
-            //Some(attempt!(serde_json::from_str(&s)))
-        //} else {
-            //None
-        //}
-    //} else {
-        //None
-    //};
-    //Ok(arguments.unwrap_or_default())
-//}
-
-////fn set_build_witness (result: &Object, options: &Object) -> Maybe<Option<WitnessValues>> {
-    ////let witness = get!(options, "witness");
-    ////Ok(if witness.is_object() {
-        ////set!(result, "witness", witness.clone());
-        ////if let Some(s) = JSON::stringify(&witness)?.as_string() {
-            ////Some(attempt!(serde_json::from_str(&s)))
-        ////} else {
-            ////None
-        ////}
-    ////} else {
-        ////None
-    ////})
-////}
-
+        //let json = expected!("convert to json": JSON::parse(&serde_json::to_string(&tx)?))?;
+        //let input_utxos = pset
+            //.inputs()
+            //.iter()
+            //.enumerate()
+            //.map(|(n, input)| match input.witness_utxo {
+              //Some(ref utxo) => Ok(ElementsUtxo {
+                //script_pubkey: utxo.script_pubkey.clone(),
+                //asset: utxo.asset,
+                //value: utxo.value,
+              //}),
+              //None => Err(PsetError::MissingWitnessUtxo(n)),
+            //})
+            //.collect::<Result<Vec<_>, _>>()?;
+        //let tx = Arc::new(pset.extract_tx().map_err(PsetError::PsetExtract)?);
+        //let ins = pset.inputs().iter().enumerate().map(|(n, input)| match input.witness_utxo {
+            //Some(ref utxo) => Ok(ElementsUtxo {
+                //script_pubkey: utxo.script_pubkey.clone(),
+                //asset: utxo.asset,
+                //value: utxo.value,
+            //}),
+            //None => Err(PsetError::MissingWitnessUtxo(n)),
+        //}).collect::<Result<Vec<_>, _>>()?
+        //Ok(ElementsEnv::new(
+            //tx,
+            //ins,
+            //input,
+            //cmr,
+            //control_block.clone(),
+            //None,
+            //match genesis_hash {
+                //Some(s) => s.parse().map_err(PsetError::GenesisHashParse)?,
+                //None => elements::BlockHash::from_byte_array([
+                    //// copied out of simplicity-webide source
+                    //0xc1, 0xb1, 0x6a, 0xe2, 0x4f, 0x24, 0x23, 0xae,
+                    //0xa2, 0xea, 0x34, 0x55, 0x22, 0x92, 0x79, 0x3b,
+                    //0x5b, 0x5e, 0x82, 0x99, 0x9a, 0x1e, 0xed, 0x81,
+                    //0xd5, 0x6a, 0xee, 0x52, 0x8e, 0xda, 0x71, 0xa7,
+                //]),
+            //},
+        //))
 ////fn set_build_bytes (
     ////result:   &Object,
     ////compiled: &CompiledProgram,
