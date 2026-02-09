@@ -61,7 +61,7 @@ pub fn script_to_taproot (script: Script) -> Maybe<TaprootSpendInfo> {
     /// Internal constructor.
     fn new (source: &str, args: Arguments, debug: bool, prune: bool) -> Maybe<Self> {
         let compiled = CompiledProgram::new(source, args.clone(), debug);
-        let compiled = expected!("compile failed": compiled)?;
+        let compiled = expected_display!("compile failed": compiled)?;
         let commit   = compiled.commit();
         let script   = Script::from(commit.cmr().to_byte_array().to_vec());
         let source   = source.into();
@@ -144,7 +144,7 @@ pub fn script_to_taproot (script: Script) -> Maybe<TaprootSpendInfo> {
         let env  = ElementsEnv::new(tx_out, ins, 0, cmr, ctrl, None, hash);
         let ctrl = script_control_block(&self.script)?;
         let scr  = self.script.clone().into_bytes();
-        let sat  = expected!("satisfy": self.compiled.satisfy_with_env(witness, Some(&env)));
+        let sat  = expected_debug!("satisfy": self.compiled.satisfy_with_env(witness, Some(&env)));
         pset.inputs_mut()[0].final_script_witness = Some(final_script_witness(ctrl, scr, sat?)?);
         tx_json(&tx_in, &expected!("extract final tx": pset.extract_tx())?)
     }

@@ -93,6 +93,12 @@ macro_rules! asserted(($expr:expr) => {
 /// Map `Err` to friendly [JsError].
 macro_rules! expected(($msg:literal: $expr:expr) => {
     $expr.map_err(|_e|JsError::new(&format!("failed: {}", $msg))) });
+/// Map `Err` to detailed friendly [JsError] if it implements [Debug].
+macro_rules! expected_debug(($msg:literal: $expr:expr) => {
+    $expr.map_err(|e|JsError::new(&format!("failed: {}: {:?}", $msg, e))) });
+/// Map `Err` to detailed friendly [JsError] if it implements [Display].
+macro_rules! expected_display(($msg:literal: $expr:expr) => {
+    $expr.map_err(|e|JsError::new(&format!("failed: {}: {}", $msg, e))) });
 /// Map `None` to friendly [JsError].
 macro_rules! required(
     ($expr:expr) => {
