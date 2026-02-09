@@ -83,18 +83,24 @@ pub fn script_to_taproot (script: Script) -> Maybe<TaprootSpendInfo> {
         let from   = get!(options, "from",   Input::address)?;
         let amount = get!(options, "amount", Input::sats)?;
         let fee    = get!(options, "fee",    Input::sats)?;
-        let (input, asset_id, balance) = find_tx_ins(&tx_in, &from)?;
-        tx_json(&tx_in, &Transaction {
-            version: 2, lock_time: LockTime::ZERO, input,
-            output: tx_out_split(
-                from.clone(),
-                self.p2tr.clone(),
-                asset_id,
-                balance,
-                amount,
-                fee
-            )?,
-        })
+        let (previous_output, utxo) = find_utxo(&tx_in, &from)?;
+        let asset_id = required!("utxo: asset cloaked": utxo.asset.explicit())?;
+        let balance  = required!("utxo: value cloaked": utxo.value.explicit())?;
+        let input = vec![TxIn {
+            previous_output,
+            is_pegin:        false,
+            script_sig:      Script::new(),
+            sequence:        Sequence::MAX,
+            asset_issuance:  AssetIssuance::null(),
+            witness:         TxInWitness {
+                amount_rangeproof:         None,
+                inflation_keys_rangeproof: None,
+                script_witness:            Vec::new(),
+                pegin_witness:             Vec::new(),
+            },
+        }];
+        let output = tx_out_split(from.clone(), self.p2tr.clone(), asset_id, balance, amount, fee)?;
+        tx_json(&tx_in, &Transaction { version: 2, lock_time: LockTime::ZERO, input, output, })
     }
     /// Generate a transaction spending funds from the program's P2TR address.
     #[wasm_bindgen] pub fn tx_spend (&self, options: Object) -> Maybe<Object> {
@@ -104,34 +110,42 @@ pub fn script_to_taproot (script: Script) -> Maybe<TaprootSpendInfo> {
         let amount  = get!(options, "amount",  Input::sats)?;
         let fee     = get!(options, "fee",     Input::sats)?;
         let witness = get!(options, "witness", Input::witness)?;
-        let (input, asset_id, balance) = find_tx_ins(&tx_in, &self.p2tr)?;
-        let tx_out  = Arc::new(Transaction {
-            version: 2, lock_time: LockTime::ZERO, input,
-            output: tx_out_split(
-                self.p2tr.clone(),
-                to,
-                asset_id,
-                balance,
-                amount,
-                fee)?
+        let (previous_output, utxo) = find_utxo(&tx_in, &self.p2tr)?;
+        let asset_id = required!("utxo: asset cloaked": utxo.asset.explicit())?;
+        let balance  = required!("utxo: value cloaked": utxo.value.explicit())?;
+        let output   = tx_out_split(self.p2tr.clone(), to, asset_id, balance, amount, fee)?;
+        let tx_out   = Arc::new(Transaction {
+            version: 2, lock_time: LockTime::ZERO, output,
+            input: vec![TxIn {
+                previous_output,
+                is_pegin:        false,
+                script_sig:      Script::new(),
+                sequence:        Sequence::MAX,
+                asset_issuance:  AssetIssuance::null(),
+                witness:         TxInWitness {
+                    amount_rangeproof:         None,
+                    inflation_keys_rangeproof: None,
+                    script_witness:            Vec::new(),
+                    pegin_witness:             Vec::new(),
+                },
+            }],
         });
         let mut pset = PartiallySignedTransaction::from_tx(tx_out.as_ref().clone());
-        let input_utxos = pset.inputs().iter().enumerate().map(|(n, input)| match input.witness_utxo {
-            None => Err(JsError::new(&format!("missing witness utxo {n}"))),
-            Some(ref utxo) => Ok(ElementsUtxo {
-                script_pubkey: utxo.script_pubkey.clone(),
-                asset: utxo.asset,
-                value: utxo.value, }) }).collect::<Maybe<Vec<_>>>()?;
-        pset.inputs_mut()[0].final_script_witness = Some(final_script_witness(
-            script_control_block(&self.script)?,
-            self.script.clone().into_bytes(),
-            expected!("satisfy": self.compiled.satisfy_with_env(
-                witness,
-                Some(&ElementsEnv::new(tx_out, input_utxos, 0, self.compiled.commit().cmr(),
-                    ControlBlock::from_slice(&script_control_block(&self.script)?)?,
-                    None, BlockHash::from_str( // FIXME: allow non-elementsregtest
-                        "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"
-                    )?))))?)?);
+        //debug!("txin={tx_in:#?}");
+        //debug!("txou={tx_out:#?}");
+        //debug!("pset={pset:#?}");
+        //debug!("  inputs={:#?}", pset.inputs());
+        let cmr  = self.compiled.commit().cmr();
+        let ctrl = ControlBlock::from_slice(&script_control_block(&self.script)?)?;
+        // FIXME: allow non-elementsregtest
+        let hash = BlockHash::from_str("0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206")?;
+        let scr  = utxo.script_pubkey.clone();
+        let ins  = vec![ElementsUtxo { script_pubkey: scr, asset: utxo.asset, value: utxo.value }];
+        let env  = ElementsEnv::new(tx_out, ins, 0, cmr, ctrl, None, hash);
+        let ctrl = script_control_block(&self.script)?;
+        let scr  = self.script.clone().into_bytes();
+        let sat  = expected!("satisfy": self.compiled.satisfy_with_env(witness, Some(&env)));
+        pset.inputs_mut()[0].final_script_witness = Some(final_script_witness(ctrl, scr, sat?)?);
         tx_json(&tx_in, &expected!("extract final tx": pset.extract_tx())?)
     }
 }
@@ -170,29 +184,15 @@ pub(crate) fn tx_json (tx_in: &Transaction, tx_out: &Transaction) -> Maybe<Objec
         "hex"    = hex::encode(&bytes),
     })
 }
-pub(crate) fn find_tx_ins (input: &Transaction, address: &Address)
-    -> Maybe<(Vec<TxIn>, AssetId, u64)>
-{
-    let (previous, utxo) = find_utxo(input, address)?;
-    let asset_id = required!("utxo: asset cloaked": utxo.asset.explicit())?;
-    let balance  = required!("utxo: value cloaked": utxo.value.explicit())?;
-    let inputs = vec![TxIn {
-        previous_output: previous,
-        is_pegin:        false,
-        script_sig:      Script::new(),
-        sequence:        Sequence::MAX,
-        asset_issuance:  AssetIssuance::null(),
-        witness:         TxInWitness::empty(),
-    }];
-    Ok((inputs, asset_id, balance))
-}
 pub fn find_utxo (tx: &Transaction, address: &Address) -> Maybe<(OutPoint, TxOut)> {
     let mut previous: Option<OutPoint> = Default::default();
     let mut utxo:     Option<TxOut>    = Default::default();
-    for (vout, output) in tx.output.iter().enumerate() {
-        debug!("vout={vout} output={output:?} value={:?}", &output.value);
+    for (index, output) in tx.output.iter().enumerate() {
+        //debug!("\nindex={index}\n  output={output:?}\n  value={:?}", &output.value);
+        //debug!("  {address:?} {:?} {:?}", &output.script_pubkey, &address.script_pubkey());
         if output.script_pubkey == address.script_pubkey() {
-            previous = Some(OutPoint::new(tx.txid(), vout as u32));
+            //debug!("  using utxo #{index}");
+            previous = Some(OutPoint::new(tx.txid(), index as u32));
             utxo     = Some(output.clone());
             break;
         }
