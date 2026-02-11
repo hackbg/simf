@@ -1,5 +1,6 @@
 import Fn         from '../../library/Fn.ts';
 import WasmLoader from '../../library/Wasm.ts';
+import { Base16 } from '../../library/Number.ts';
 import type Btc   from '../Bitcoin/Bitcoin.ts';
 import { exit, env, argv, stdout, stderr } from 'node:process';
 export default Simf;
@@ -110,6 +111,14 @@ namespace Simf {
       stderr.write(o.stderr);
       stdout.write(o.stdout);
       return output;
+    }
+  }
+  export namespace Witness {
+    /** Define signature field in witness data. */
+    export function Signature (
+      value: Uint8Array<ArrayBufferLike> = new Uint8Array(new Array(32).fill(0))
+    ) {
+      return { type: "Signature", value: `0x${Base16.encode(value)}` }
     }
   }
 }
