@@ -55,7 +55,7 @@ export default Test(import.meta, 'Simf',
       '0b771386a2ee6f0cfb296b0656a98431b77be650ea1eb0f7beb05894fe9bba87',
       'tex1p53f33nnjed42the73v3y2hgdgmhq98fh3d5r05u23fjwc0xyp9fqzn6ulg',
       `fn main () { jet::bip_0340_verify((0x${Base16.encode(PUB_SCHNORR)}, jet::sig_all_hash()), witness::SIG) }`,
-      () => ({ SIG: Simf.Witness.Signature(sign()), })),
+      (sighash: Uint8Array) => ({ SIG: Simf.Witness.Signature(sign(sighash)), })),
     Example(true,  "pay to pubkey hash", 2.7e-7,
       'e65e19e139a13583a0a7efb24be13c20d578f06f51b2a7fe7c7b9097072dbabe',
       'tex1p305439usq06f4maelan8txnxshktvayu9z5gnwu6zrrxm9vmlufqcshcuv',
@@ -64,7 +64,8 @@ export default Test(import.meta, 'Simf',
        fn sha2 (string: u256) -> u256 { let hasher: Ctx8 = jet::sha_256_ctx_8_init();
                                         let hasher: Ctx8 = jet::sha_256_ctx_8_add_32(hasher, string);
                                         jet::sha_256_ctx_8_finalize(hasher) }`,
-      () => ({ SIG: Simf.Witness.Signature(sign()), PUB: Simf.Witness.Signature(sign()), })),
+      (sighash: Uint8Array) => ({ SIG: Simf.Witness.Signature(sign(sighash))
+                                , PUB: Simf.Witness.Signature(sign()), })),
     // Shutdown the localnet.
     (btc: Btc) => btc.kill(9)));
 /** Define example program. */
@@ -82,7 +83,7 @@ function Example (
   /** Source code of program. */
   src:  string,
   /** Function that provides witness data. */
-  wits?: Fn<[object], Fn.Async<object>>
+  wits?: Fn<[Uint8Array], Fn.Async<object>>
 ) {
   const fail = !pass
   const meta = { name, cost, cmr, p2tr, src, fail, wits };
@@ -100,13 +101,14 @@ function Example (
     const network = { bech32: 'tex', pubKeyHash: 0x6f, scriptHash: 0xc4, wif: 0xef, };
     const { address: user } = p2wpkh(PUB_ECDSA, network);
     await rpc.importaddress(user);
-    const witness = wits ? await wits({ user }) : {};
     // Note current balance:
     await rpc.rescanblockchain();
     const balance = ((await rpc.getreceivedbyaddress(user, 0)) as { bitcoin: number }).bitcoin;
     // Try spending from program:
-    const fee = 1e-4;
-    const amount = 1. - fee;
+    const fee     = 1e-4;
+    const amount  = 1. - fee;
+    const sighash = Base16.decode(prog.sighash({ tx, amount, fee, to: user }).toUpperCase());
+    const witness = wits ? await wits(sighash) : {};
     const context = { rpc, rest, tx, amount, fee, witness, to: user };
     if (fail) {
       // TX is expected to fail

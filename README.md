@@ -1,4 +1,6 @@
-# Standalone SimplicityHL Compiler for WASM
+# SimplicityHL Support in Fadroma
+
+## Standalone SimplicityHL Compiler in WASM
 
 [dev build (alpha)](https://github.com/hackbg/simf/releases/download/20260203/fadroma_simf_bg.wasm)
 

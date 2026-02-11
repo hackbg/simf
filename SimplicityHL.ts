@@ -56,17 +56,42 @@ function Simf (source: string): Simf {
 }
 /** SimplicityHL utilities. */
 namespace Simf {
+
+  /** Compiled SimplicityHL program (WASM object). */
+  export interface Program extends Simf {
+    /** The program's P2TR address. */
+    toString (): object
+    /** The program's detailed description. */
+    toJSON   (): object
+    /** Transfer funds to program. */
+    fund     (_: Btc & Fund):  Promise<string>
+    /** Generate transaction to transfer funds to program. */
+    tx_fund  (_: Fund):        WasmTx
+    /** Transfer funds from program. */
+    spend    (_: Btc & Spend): Promise<string>
+    /** Generate transaction to spend funds from program. */
+    tx_spend (_: Spend):       WasmTx
+    /** Get sighash for spend to sign by witness. */
+    sighash  (_: Spend):       string;
+  };
+
   export type Tx     = unknown;
+
   export type TxCtx  = { tx: Tx, amount, fee, witness? };
+
   export type RpcCtx = { rpc, rest };
+
   export type Fund   = TxCtx & { from: string }
+
   export type Spend  = TxCtx & { to:   string };
+
   /** SimplicityHL WASM module API. */
   export type Wasm = {
     cmr_to_p2tr: Fn.Returns<string>,
     compile:     Fn<[string, object?], Program>,
     toJSON:      Fn.Returns<object>,
   };
+
   /** Load SimplicityHL WASM module. */
   export function Wasm (
     wasm = env['FADROMA_SIMF_WASM'] || import.meta.resolve('./pkg/fadroma_simf_bg.wasm'),
@@ -74,6 +99,7 @@ namespace Simf {
   ) {
     return WasmLoader<Wasm>(wasm, wrap)()
   }
+
   /** Transaction returned by SimplicityHL WASM module. */
   export type WasmTx = {
     hex:         string,
@@ -85,17 +111,7 @@ namespace Simf {
       lock_time: { block: number }|{ seconds: number }
     }
   };
-  /** Compiled SimplicityHL program (WASM object). */
-  export interface Program extends Simf {
-    toString (): object
-    toJSON   (): object
-    /** Transfer funds to program. */
-    fund     (_: Btc & Fund):  Promise<string>
-    tx_fund  (_: Fund):        WasmTx
-    /** Transfer funds from program. */
-    spend    (_: Btc & Spend): Promise<string>
-    tx_spend (_: Spend):       WasmTx
-  };
+
   /** Simplicity CLI. */
   export const Cli = async function simfCli (program: Simf) {
     const [_, __, command, ..._args] = argv;
