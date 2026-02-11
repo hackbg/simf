@@ -1,27 +1,29 @@
 #!/usr/bin/env -S deno run --allow-read --allow-env --allow-run --allow-write=/tmp/fadroma --allow-import=cdn.skypack.dev:443,deno.land:443 --allow-net=127.0.0.1:8941,liquidtestnet.com:443,blockstream.info:443
 import Fn   from '../../library/Fn.ts';
-import The  from '../../library/Test.ts';
+import Test  from '../../library/Test.ts';
 import Btc  from '../Bitcoin/Bitcoin.ts';
 import Simf from './SimplicityHL.ts';
 import { Base16 } from '../../library/Number.ts';
 import { p2wpkh } from '@scure/btc-signer';
-import { pubSchnorr, pubECDSA } from '@scure/btc-signer/utils.js';
+import { pubECDSA, pubSchnorr, signSchnorr } from '@scure/btc-signer/utils.js';
 import { deepStrictEqual as equal, rejects } from 'node:assert';
-const { is: Is, has: Has } = The;
+const { is: Is, has: Has } = Test;
 /** Non-private key. */
 const PRIVATE     = new Uint8Array(Array(32).fill(1));
 /** Public key for ECDSA (transactions). */
 const PUB_ECDSA   = pubECDSA(PRIVATE);
 /** Public key for Schnorr (witnesses). */
 const PUB_SCHNORR = pubSchnorr(PRIVATE);
+/** Sign with test private key. */
+const sign = (data: Uint8Array<ArrayBufferLike> = new Uint8Array()) => signSchnorr(data, PRIVATE);
 /** Test the SimplicityHL support in Fadroma. */
-export default The(import.meta, 'Simf',
+export default Test(import.meta, 'Simf',
   // Check that the API entrypoints are present on the WASM module:
-  The('WASM', () => Simf.Wasm(),
+  Test('WASM', () => Simf.Wasm(),
     Has('cmr_to_p2tr', Is('function')),
     Has('compile',     Is('function'))),
   // Compile and deploy example programs:
-  The('Deploy',
+  Test('Deploy',
     // Start by spawning a localnet:
     () => Btc.ElementsRegtest(),
     // Optionally, pipe the localnet's output to stderr:
@@ -32,34 +34,39 @@ export default The(import.meta, 'Simf',
     Btc.Rescan(testHasBalance({ [Btc.ElementsRegtest.REISSUE]: 1,
       bitcoin: Number(Btc.ElementsRegtest.INITIAL.COINS / Btc.ElementsRegtest.DECIMAL) })),
     // And now we can test the included example programs:
-    Example(true,  "unit program",       2.4e-7, 'c40a10263f7436b4160acbef1c36fba4be4d95df181a968afeab5eac247adff7', 'tex1p9jcvyzkdwdqtf49kta4xpc5g35xkfcexwfsl8v70w2gwttelncyshxjk56',
+    Example(true,  "unit program",       2.4e-7,
+      'c40a10263f7436b4160acbef1c36fba4be4d95df181a968afeab5eac247adff7',
+      'tex1p9jcvyzkdwdqtf49kta4xpc5g35xkfcexwfsl8v70w2gwttelncyshxjk56',
       'fn main () {}'),
-    Example(true,  "assert true",        2.7e-7, '206e951b8c4e65032096bfa54ed287b804060f55db41d87edffcc566ab8728e8', 'tex1pa86g4lqqsll5p58qqjcauq0htfcgsvam6rv3ze2y07j8glg7smgska7ufk',
+    Example(true,  "assert true",        2.7e-7,
+      '206e951b8c4e65032096bfa54ed287b804060f55db41d87edffcc566ab8728e8',
+      'tex1pa86g4lqqsll5p58qqjcauq0htfcgsvam6rv3ze2y07j8glg7smgska7ufk',
       'fn main () { assert!(true) }'),
-    Example(false, "assert false",       2.7e-7, 'ec15fa538a70a3550cbc715ac1ee6efbeb4df2ef84abc37fd15b3981019ed88f', 'tex1pnjn54t0dd9d57n59vnuhvstfdnzcc72zl6dn4lgw0upc26ax0rnqp23aw0',
+    Example(false, "assert false",       2.7e-7,
+      'ec15fa538a70a3550cbc715ac1ee6efbeb4df2ef84abc37fd15b3981019ed88f',
+      'tex1pnjn54t0dd9d57n59vnuhvstfdnzcc72zl6dn4lgw0upc26ax0rnqp23aw0',
       'fn main () { assert!(false) }'),
-    Example(true,  "basic jets work",    2.7e-7, 'e65e19e139a13583a0a7efb24be13c20d578f06f51b2a7fe7c7b9097072dbabe', 'tex1p305439usq06f4maelan8txnxshktvayu9z5gnwu6zrrxm9vmlufqcshcuv',
-      `fn main () { let ab: u16 = <(u8, u8)>::into((0x10, 0x01));
-                    let c:  u16 = 0x1001;
-                    assert!(jet::eq_16(ab, c));
-                    let ab: u8  = <(u4, u4)>::into((0b1011, 0b1101));
-                    let c:  u8  = 0b10111101;
-                    assert!(jet::eq_8(ab, c)); }`),
-    Example(true,  "pay to pubkey",      2.7e-7, '0b771386a2ee6f0cfb296b0656a98431b77be650ea1eb0f7beb05894fe9bba87', 'tex1p53f33nnjed42the73v3y2hgdgmhq98fh3d5r05u23fjwc0xyp9fqzn6ulg',
+    Example(true,  "basic jets work",    2.7e-7,
+      'e65e19e139a13583a0a7efb24be13c20d578f06f51b2a7fe7c7b9097072dbabe',
+      'tex1p305439usq06f4maelan8txnxshktvayu9z5gnwu6zrrxm9vmlufqcshcuv',
+      `fn main () { let ab: u16 = <(u8, u8)>::into((0x10, 0x01));     let c:  u16 = 0x1001;     assert!(jet::eq_16(ab, c));
+                    let ab: u8  = <(u4, u4)>::into((0b1011, 0b1101)); let c:  u8  = 0b10111101; assert!(jet::eq_8(ab, c)); }`),
+    Example(true,  "pay to pubkey",      2.7e-7,
+      '0b771386a2ee6f0cfb296b0656a98431b77be650ea1eb0f7beb05894fe9bba87',
+      'tex1p53f33nnjed42the73v3y2hgdgmhq98fh3d5r05u23fjwc0xyp9fqzn6ulg',
       `fn main () { jet::bip_0340_verify((0x${Base16.encode(PUB_SCHNORR)}, jet::sig_all_hash()), witness::SIG) }`,
-      ({ user }) => ({ SIG: Signature("0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"), })),
-    Example(true,  "pay to pubkey hash", 2.7e-7, 'e65e19e139a13583a0a7efb24be13c20d578f06f51b2a7fe7c7b9097072dbabe', 'tex1p305439usq06f4maelan8txnxshktvayu9z5gnwu6zrrxm9vmlufqcshcuv',
+      () => ({ SIG: Simf.Witness.Signature(sign()), })),
+    Example(true,  "pay to pubkey hash", 2.7e-7,
+      'e65e19e139a13583a0a7efb24be13c20d578f06f51b2a7fe7c7b9097072dbabe',
+      'tex1p305439usq06f4maelan8txnxshktvayu9z5gnwu6zrrxm9vmlufqcshcuv',
       `fn main () { assert!(jet::eq_256(sha2(witness::PUB), 0x${Base16.encode(PUB_SCHNORR)}));
                     jet::bip_0340_verify((witness::PUB, jet::sig_all_hash()), witness::SIG) }
        fn sha2 (string: u256) -> u256 { let hasher: Ctx8 = jet::sha_256_ctx_8_init();
                                         let hasher: Ctx8 = jet::sha_256_ctx_8_add_32(hasher, string);
                                         jet::sha_256_ctx_8_finalize(hasher) }`,
-      ({ user }) => ({ PUB: Signature("0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"),
-                       SIG: Signature("0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"), })),
+      () => ({ SIG: Simf.Witness.Signature(sign()), PUB: Simf.Witness.Signature(sign()), })),
     // Shutdown the localnet.
     (btc: Btc) => btc.kill(9)));
-/** Define signature field in witness data. */
-function Signature (value: string) { return { type: "Signature", value } }
 /** Define example program. */
 function Example (
   /** Is the example expected to work? */
