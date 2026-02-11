@@ -14,6 +14,10 @@ export class Program {
   free(): void;
   [Symbol.dispose](): void;
   /**
+   * Output a spend transaction's SIGHASH_ALL hash, which must be signed by witnesses.
+   */
+  sighash(options: object): string;
+  /**
    * Use this in JS to get the properties of the compiled program.
    */
   toJSON(): object;
@@ -50,6 +54,7 @@ export interface InitOutput {
   readonly __wbg_program_free: (a: number, b: number) => void;
   readonly cmr_to_p2tr: (a: any) => [number, number, number];
   readonly compile: (a: any, b: any) => [number, number, number];
+  readonly program_sighash: (a: number, b: any) => [number, number, number, number];
   readonly program_toJSON: (a: number) => any;
   readonly program_toString: (a: number) => [number, number];
   readonly program_tx_fund: (a: number, b: any) => [number, number, number];

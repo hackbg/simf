@@ -251,6 +251,31 @@ export class Program {
         wasm.__wbg_program_free(ptr, 0);
     }
     /**
+     * Output a spend transaction's SIGHASH_ALL hash, which must be signed by witnesses.
+     * @param {object} options
+     * @returns {string}
+     */
+    sighash(options) {
+        let deferred2_0;
+        let deferred2_1;
+        try {
+            if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+            _assertNum(this.__wbg_ptr);
+            const ret = wasm.program_sighash(this.__wbg_ptr, options);
+            var ptr1 = ret[0];
+            var len1 = ret[1];
+            if (ret[3]) {
+                ptr1 = 0; len1 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred2_0 = ptr1;
+            deferred2_1 = len1;
+            return getStringFromWasm0(ptr1, len1);
+        } finally {
+            wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+        }
+    }
+    /**
      * Use this in JS to get the properties of the compiled program.
      * @returns {object}
      */

@@ -102,14 +102,29 @@ pub fn script_to_taproot (script: Script) -> Maybe<TaprootSpendInfo> {
         let output = tx_out_split(from.clone(), self.p2tr.clone(), asset_id, balance, amount, fee)?;
         tx_json(&tx_in, &Transaction { version: 2, lock_time: LockTime::ZERO, input, output, })
     }
+    /// Output a spend transaction's SIGHASH_ALL hash, which must be signed by witnesses.
+    #[wasm_bindgen] pub fn sighash (&self, options: Object) -> Maybe<String> {
+        let (_, utxo, tx_out) = self.tx_spend_context(&options)?;
+        Ok(format!("{}", self.tx_spend_env(&utxo, tx_out.clone())?.c_tx_env().sighash_all()))
+    }
     /// Generate a transaction spending funds from the program's P2TR address.
     #[wasm_bindgen] pub fn tx_spend (&self, options: Object) -> Maybe<Object> {
+        let (tx_in, utxo, tx_out) = self.tx_spend_context(&options)?;
+        let witness = get!(options, "witness", Input::witness)?;
+        let mut pset = PartiallySignedTransaction::from_tx(tx_out.as_ref().clone());
+        let env  = self.tx_spend_env(&utxo, tx_out.clone())?;
+        let ctrl = script_control_block(&self.script)?;
+        let scr  = self.script.clone().into_bytes();
+        let sat  = expected_debug!("satisfy": self.compiled.satisfy_with_env(witness, Some(&env)));
+        pset.inputs_mut()[0].final_script_witness = Some(final_script_witness(ctrl, scr, sat?)?);
+        tx_json(&tx_in, &expected!("extract final tx": pset.extract_tx())?)
+    }
+    fn tx_spend_context (&self, options: &Object) -> Maybe<(Transaction, TxOut, Arc<Transaction>)> {
         asserted!(options.is_object());
         let tx_in   = get!(options, "tx",      Input::tx)?;
         let to      = get!(options, "to",      Input::address)?;
         let amount  = get!(options, "amount",  Input::sats)?;
         let fee     = get!(options, "fee",     Input::sats)?;
-        let witness = get!(options, "witness", Input::witness)?;
         let (previous_output, utxo) = find_utxo(&tx_in, &self.p2tr)?;
         let asset_id = required!("utxo: asset cloaked": utxo.asset.explicit())?;
         let balance  = required!("utxo: value cloaked": utxo.value.explicit())?;
@@ -130,23 +145,16 @@ pub fn script_to_taproot (script: Script) -> Maybe<TaprootSpendInfo> {
                 },
             }],
         });
-        let mut pset = PartiallySignedTransaction::from_tx(tx_out.as_ref().clone());
-        //debug!("txin={tx_in:#?}");
-        //debug!("txou={tx_out:#?}");
-        //debug!("pset={pset:#?}");
-        //debug!("  inputs={:#?}", pset.inputs());
+        Ok((tx_in, utxo, tx_out))
+    }
+    fn tx_spend_env (&self, utxo: &TxOut, tx_out: Arc<Transaction>) -> Maybe<Env> {
         let cmr  = self.compiled.commit().cmr();
         let ctrl = ControlBlock::from_slice(&script_control_block(&self.script)?)?;
         // FIXME: allow non-elementsregtest
         let hash = BlockHash::from_str("0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206")?;
         let scr  = utxo.script_pubkey.clone();
         let ins  = vec![ElementsUtxo { script_pubkey: scr, asset: utxo.asset, value: utxo.value }];
-        let env  = ElementsEnv::new(tx_out, ins, 0, cmr, ctrl, None, hash);
-        let ctrl = script_control_block(&self.script)?;
-        let scr  = self.script.clone().into_bytes();
-        let sat  = expected_debug!("satisfy": self.compiled.satisfy_with_env(witness, Some(&env)));
-        pset.inputs_mut()[0].final_script_witness = Some(final_script_witness(ctrl, scr, sat?)?);
-        tx_json(&tx_in, &expected!("extract final tx": pset.extract_tx())?)
+        Ok(ElementsEnv::new(tx_out, ins, 0, cmr, ctrl, None, hash))
     }
 }
 /// Generate transaction output for spending part or all of the funds at an address.

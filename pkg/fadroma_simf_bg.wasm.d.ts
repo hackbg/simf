@@ -4,6 +4,7 @@ export const memory: WebAssembly.Memory;
 export const __wbg_program_free: (a: number, b: number) => void;
 export const cmr_to_p2tr: (a: any) => [number, number, number];
 export const compile: (a: any, b: any) => [number, number, number];
+export const program_sighash: (a: number, b: any) => [number, number, number, number];
 export const program_toJSON: (a: number) => any;
 export const program_toString: (a: number) => [number, number];
 export const program_tx_fund: (a: number, b: any) => [number, number, number];
