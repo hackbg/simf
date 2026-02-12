@@ -87,3 +87,13 @@ As the Rust/C ABI boundary is slightly fragile, we provide a build image with
 matching versions of build dependencies.
 
 See comment in `Dockerfile` for more info.
+
+## Attribution
+
+This project applies techniques pioneered by the following projects:
+
+* simply (MIT license)
+  https://github.com/starkware-bitcoin/simply
+
+* simplicityhl-core (MIT/Apache license)
+  https://github.com/BlockstreamResearch/simplicity-contracts/
