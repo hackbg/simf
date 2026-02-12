@@ -5,58 +5,71 @@
 
 # Standalone SimplicityHL Support in Fadroma
 
-This minimalist WASM module allows you to:
-* **compile** a Bitcoin smart contract
-  * from SimplicityHL source code
-  * from CMR (Commitment Merkle root) hash
-* **deploy** a Bitcoin smart contract
-  * by generating a transaction that transfers funds to its P2TR address
-* **execute** a Bitcoin smart contract
-  * by generating a transaction that contains a witness signature
-    of the contract's affirmative evaluation.
+## Introduction
 
-The above operations are accessible from JS/TS land, through an equally minimalist SDK.
+This package implements the following operations:
 
-In turn, that enables full-stack integration testing atop a
-a temporary Elements localnet in `elementsregtest` mode.
+* **compile** a Bitcoin smart contract from SimplicityHL source code to a corresponding P2TR (Pay-to-Taproot) address.
+* **deploy** a SimplicityHL smart contract by generating a transaction that transfers funds to its address.
+* **execute** a SimplicityHL smart contract by providing a signed witness to the contract's affirmative evaluation for given values.
+
+You get to invoke the above operations from JS/TS land, through an equally minimalist SDK.
+
+In turn, this enables full-stack integration testing from a scripting language,
+atop an ephemeral Elements localnet in `elementsregtest` mode.
 
 ## Usage
 
-### Loading the module
+### Load the module
 
-[dev build (alpha)](https://github.com/hackbg/simf/releases/download/20260203/fadroma_simf_bg.wasm)
+You can [download a build](https://github.com/hackbg/simf/releases) or [compile the module yourself](#build-the-wasm-binary).
 
-**There is a remaining `env` import, `__assert_fail`, which needs to be polyfilled**
-to the WASM's `wasm-bindgen` wrapper:
-  * in Deno we use a stub module in the global import map for this
-  * for Node you could try `"env": "./stub.js"` in `package.json` and
-    `export function __assert_fail () {}` in `stub.js`
-    while we're looking how to provide this out of the box.
+```ts
+// This example is not written yet!
+```
 
-### Compiling a CMR to P2TR 
+#### Polyfill `env.__assert_fail`
+
+There is a remaining `env` import, `__assert_fail`, which needs to be polyfilled
+to the WASM's `wasm-bindgen` wrapper. In Deno and browsers we can use a stub module
+in the global import map for this. For Node you could 
+try `"env": "./stub.js"` in `package.json`
+and `export function __assert_fail () {}` in `stub.js` while we're looking how to provide this out of the box.
+
+### Convert CMR to P2TR 
 
 Starting with the CMR (Commitment Merkle root) hash, you can get its corresponding
 **P2TR (Pay to Taproot)** address using the `cmr_to_p2tr` function.
 
 Sending funds to a P2TR address is equivalent to deploying the corresponding program.
 
-### Compiling SimplicityHL to P2TR
+### Compile SimplicityHL to P2TR
 
 Starting with SimplicityHL source code, you can **call `compile` to compute its CMR and P2TR**.
 
 The returned `Program` object's `tx_fund` and `tx_spend` generate transactions for
 respectively deploying and invoking the SimplicityHL program.
 
+#### Deploy SimplicityHL program
+
+> This part is not documented yet!
+
+#### Execute SimplicityHL program
+
+> This part is not documented yet!
+
 ## Development
 
-Dependencies:
+### Quick start
+
+See `Justfile`.
+
+### Dependencies
 
   * Just
   * Docker (or Podman/Buildah)
 
-See `Justfile` for available deployment tasks.
-
-### Running tests
+### Run tests
 
 Having checked out this repo, use the `test-*` commands in the Justfile to run the tests.
 
@@ -65,9 +78,10 @@ so we've provided a test image with the required context.
 
 See comment in `Dockerfile` for info about test context.
 
-### Iterating
+### Iterate
 
-Having made changes to the source code, use the `wasm-*` commands in the Justfile to recompile.
+Having made changes to the source code, use the `wasm-*` commands in the Justfile
+to recompile the WASM binary.
 
 As the Rust/C ABI boundary is slightly fragile, we provide a build image with
 matching versions of build dependencies.
