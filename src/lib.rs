@@ -19,62 +19,30 @@ pub(crate) use web_sys::console::{log_1, debug_1, warn_1};
 };
 #[allow(unused)] pub(crate) use bitcoin_hashes::Hash;
 #[allow(unused)] pub(crate) use simplicityhl::{
-    dummy_env,
-    Arguments,
-    CompiledProgram,
-    SatisfiedProgram,
-    Value,
-    WitnessValues,
+    Arguments, CompiledProgram, SatisfiedProgram, Value, WitnessValues,
     str::WitnessName,
     simplicity::{
-        Amr,
-        BitIter,
-        Cmr,
-        CommitNode,
-        Ihr,
+        Amr, BitIter, Cmr, CommitNode, Ihr, leaf_version,
         human_encoding::Forest,
-        jet::Elements,
-        jet::elements::{ElementsEnv, ElementsUtxo},
-        leaf_version,
+        jet::{Elements, elements::{ElementsEnv, ElementsUtxo}},
     },
     elements::{
         self,
-        Address,
-        AddressParams,
-        AssetId,
-        AssetIssuance,
-        LockTime,
-        OutPoint,
-        Script,
-        Sequence,
-        Transaction,
-        Txid,
-        TxIn,
-        TxInWitness,
-        TxOut,
-        TxOutWitness,
-        confidential::{
-            Asset,
-            Nonce,
-            Value as TxValue
-        },
+        Address, AddressParams, AssetId, AssetIssuance, LockTime, OutPoint, Script, Sequence,
+        Transaction, Txid, TxIn, TxInWitness, TxOut, TxOutWitness,
+        confidential::{Asset, Nonce, Value as TxValue},
         encode::deserialize as deserialize_tx,
         hash_types::BlockHash,
-        pset::{
-            PartiallySignedTransaction,
-            serialize::Serialize,
-        },
+        pset::{PartiallySignedTransaction, serialize::Serialize,},
         secp256k1_zkp as secp256k1,
-        taproot::{
-            ControlBlock,
-            LeafVersion,
-            TaprootBuilder,
-            TaprootSpendInfo
-        },
+        schnorr::UntweakedPublicKey,
+        taproot::{ControlBlock, LeafVersion, TaprootBuilder, TaprootSpendInfo},
     }
 };
 /// Standard result type
 pub(crate) type Maybe<T> = Result<T, JsError>;
+/// Concrete type of [ElementsEnv] used.
+pub type Env = simplicityhl::simplicity::jet::elements::ElementsEnv<Arc<Transaction>>;
 /// Log to JS console.
 #[allow(unused)] macro_rules! log(($msg:literal $(, $expr:expr)*) => {
     log_1(&format!($msg $(, $expr)*).into())});

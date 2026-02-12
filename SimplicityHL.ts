@@ -31,39 +31,36 @@ export default SimplicityHL;
 async function SimplicityHL (source: string, args?: SimplicityHL.Args): Promise<SimplicityHL> {
   const { compile } = await SimplicityHL.Wasm();
   const program = compile(source, { args }) as SimplicityHL;
-  return Object.assign(program, program.toJSON(), { source, args, fund, spend });
+  const fields = (program as unknown as  { toJSON (): unknown }).toJSON()
+  return Object.assign(program, fields, { fund, spend });
   async function fund (context: Pick<Btc, 'rpc'|'rest'> & SimplicityHL.Fund) {
-    const { rpc, rest, ...args } = context;
-    return await rest.tx(await rpc.sendrawtransaction(program.tx_fund(args).hex));
+    const { rpc, rest, ...options } = context;
+    return await rest.tx(await rpc.sendrawtransaction(program.fundTx(options).hex));
   }
   async function spend (context: Pick<Btc, 'rpc'|'rest'> & SimplicityHL.Spend) {
-    const { rpc, rest, ...args } = context;
-    return await rest.tx(await rpc.sendrawtransaction(program.tx_spend(args).hex));
+    const { rpc, rest, ...options } = context;
+    return await rest.tx(await rpc.sendrawtransaction(program.spendTx(options).hex));
   }
 }
 
 /** Compiled SimplicityHL program (WASM object). */
 interface SimplicityHL {
   /** Code of program. */
-  source: string
+  source:      string
   /** CMR hash .*/
-  cmr:    string
+  cmr:         string
   /** The program's P2TR address. */
-  p2tr:   string
-  /** The program's P2TR address. */
-  toString (): object
-  /** The program's detailed description. */
-  toJSON   (): object
-  /** Generate transaction to transfer funds to program. */
-  tx_fund  (_: SimplicityHL.Fund): SimplicityHL.Transaction
+  p2tr:        string
   /** Transfer funds to program. */
-  fund     (_: Pick<Btc, 'rpc'|'rest'> & SimplicityHL.Fund):  Promise<string>
-  /** Get sighash for spend to sign by witness. */
-  sighash  (_: SimplicityHL.Spend): string;
-  /** Generate transaction to spend funds from program. */
-  tx_spend (_: SimplicityHL.Spend): SimplicityHL.Transaction
+  fund         (_: Pick<Btc, 'rpc'|'rest'> & SimplicityHL.Fund):  Promise<string>
+  /** Generate transaction to transfer funds to program. */
+  fundTx       (_: SimplicityHL.Fund): SimplicityHL.Transaction
   /** Transfer funds from program. */
-  spend    (_: Pick<Btc, 'rpc'|'rest'> & SimplicityHL.Spend): Promise<string>
+  spend        (_: Pick<Btc, 'rpc'|'rest'> & SimplicityHL.Spend): Promise<string>
+  /** Generate transaction to spend funds from program. */
+  spendTx      (_: SimplicityHL.Spend): SimplicityHL.Transaction
+  /** Get sighash for spend to sign by witness. */
+  spendSighash (_: SimplicityHL.Spend): string;
 }
 
 /** SimplicityHL integration. */

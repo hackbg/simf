@@ -14,21 +14,21 @@ export class Program {
   free(): void;
   [Symbol.dispose](): void;
   /**
-   * Output a spend transaction's SIGHASH_ALL hash, which must be signed by witnesses.
+   * Output the hash which must be signed by the witness for the spend to be valid.
    */
-  sighash(options: object): string;
+  spendSighash(options: object): string;
+  /**
+   * Generate a transaction to fund the program's P2TR address.
+   */
+  fundTx(options: object): object;
   /**
    * Use this in JS to get the properties of the compiled program.
    */
   toJSON(): object;
   /**
-   * Generate a transaction funding the program's P2TR address.
+   * Generate a transaction to spend funds from the program's P2TR address.
    */
-  tx_fund(options: object): object;
-  /**
-   * Generate a transaction spending funds from the program's P2TR address.
-   */
-  tx_spend(options: object): object;
+  spendTx(options: object): object;
   /**
    * Programs stringify to their P2TR addresses.
    */
@@ -54,11 +54,11 @@ export interface InitOutput {
   readonly __wbg_program_free: (a: number, b: number) => void;
   readonly cmr_to_p2tr: (a: any) => [number, number, number];
   readonly compile: (a: any, b: any) => [number, number, number];
-  readonly program_sighash: (a: number, b: any) => [number, number, number, number];
+  readonly program_fundTx: (a: number, b: any) => [number, number, number];
+  readonly program_spendSighash: (a: number, b: any) => [number, number, number, number];
+  readonly program_spendTx: (a: number, b: any) => [number, number, number];
   readonly program_toJSON: (a: number) => any;
   readonly program_toString: (a: number) => [number, number];
-  readonly program_tx_fund: (a: number, b: any) => [number, number, number];
-  readonly program_tx_spend: (a: number, b: any) => [number, number, number];
   readonly rust_0_6_malloc: (a: number) => number;
   readonly rust_0_6_free: (a: number) => void;
   readonly rust_0_6_calloc: (a: number, b: number) => number;

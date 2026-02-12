@@ -115,7 +115,7 @@ function Example (
     // Try spending from program:
     const fee     = 1e-4;
     const amount  = 1. - fee;
-    const sighash = prog.sighash({ tx, amount, fee, to: user });
+    const sighash = prog.spendSighash({ tx, amount, fee, to: user });
     const witness = wits ? await wits(Base16.decode(sighash.toUpperCase())) : {};
     console.log({ src, sighash, witness });
     const context = { rpc, rest, tx, amount, fee, witness, to: user };

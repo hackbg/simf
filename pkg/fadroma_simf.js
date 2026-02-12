@@ -251,17 +251,17 @@ export class Program {
         wasm.__wbg_program_free(ptr, 0);
     }
     /**
-     * Output a spend transaction's SIGHASH_ALL hash, which must be signed by witnesses.
+     * Output the hash which must be signed by the witness for the spend to be valid.
      * @param {object} options
      * @returns {string}
      */
-    sighash(options) {
+    spendSighash(options) {
         let deferred2_0;
         let deferred2_1;
         try {
             if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
             _assertNum(this.__wbg_ptr);
-            const ret = wasm.program_sighash(this.__wbg_ptr, options);
+            const ret = wasm.program_spendSighash(this.__wbg_ptr, options);
             var ptr1 = ret[0];
             var len1 = ret[1];
             if (ret[3]) {
@@ -276,6 +276,20 @@ export class Program {
         }
     }
     /**
+     * Generate a transaction to fund the program's P2TR address.
+     * @param {object} options
+     * @returns {object}
+     */
+    fundTx(options) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ret = wasm.program_fundTx(this.__wbg_ptr, options);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
      * Use this in JS to get the properties of the compiled program.
      * @returns {object}
      */
@@ -286,28 +300,14 @@ export class Program {
         return ret;
     }
     /**
-     * Generate a transaction funding the program's P2TR address.
+     * Generate a transaction to spend funds from the program's P2TR address.
      * @param {object} options
      * @returns {object}
      */
-    tx_fund(options) {
+    spendTx(options) {
         if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
         _assertNum(this.__wbg_ptr);
-        const ret = wasm.program_tx_fund(this.__wbg_ptr, options);
-        if (ret[2]) {
-            throw takeFromExternrefTable0(ret[1]);
-        }
-        return takeFromExternrefTable0(ret[0]);
-    }
-    /**
-     * Generate a transaction spending funds from the program's P2TR address.
-     * @param {object} options
-     * @returns {object}
-     */
-    tx_spend(options) {
-        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
-        _assertNum(this.__wbg_ptr);
-        const ret = wasm.program_tx_spend(this.__wbg_ptr, options);
+        const ret = wasm.program_spendTx(this.__wbg_ptr, options);
         if (ret[2]) {
             throw takeFromExternrefTable0(ret[1]);
         }

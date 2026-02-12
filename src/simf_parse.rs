@@ -68,6 +68,22 @@ impl Input {
         }
         Ok(WitnessValues::default())
     }
+
+    pub fn find_utxo (tx: &Transaction, address: &Address) -> Maybe<(OutPoint, TxOut)> {
+        let mut previous: Option<OutPoint> = Default::default();
+        let mut utxo:     Option<TxOut>    = Default::default();
+        for (index, output) in tx.output.iter().enumerate() {
+            //debug!("\nindex={index}\n  output={output:?}\n  value={:?}", &output.value);
+            //debug!("  {address:?} {:?} {:?}", &output.script_pubkey, &address.script_pubkey());
+            if output.script_pubkey == address.script_pubkey() {
+                //debug!("  using utxo #{index}");
+                previous = Some(OutPoint::new(tx.txid(), index as u32));
+                utxo     = Some(output.clone());
+                break;
+            }
+        }
+        Ok((required!(previous)?, required!(utxo)?))
+    }
 }
 
 pub struct Output;
