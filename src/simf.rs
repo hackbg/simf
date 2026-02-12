@@ -99,66 +99,73 @@ pub fn script_to_taproot (script: Script) -> Maybe<TaprootSpendInfo> {
                 pegin_witness:             Vec::new(),
             },
         }];
-        let output = tx_out_split(from.clone(), self.p2tr.clone(), asset_id, balance, amount, fee)?;
-        tx_json(&tx_in, &Transaction { version: 2, lock_time: LockTime::ZERO, input, output, })
+        let output = split(from.clone(), self.p2tr.clone(), asset_id, balance, amount, fee)?;
+        Output::tx(&Transaction { version: 2, lock_time: LockTime::ZERO, input, output, })
     }
     /// Output a spend transaction's SIGHASH_ALL hash, which must be signed by witnesses.
     #[wasm_bindgen] pub fn sighash (&self, options: Object) -> Maybe<String> {
-        let (_, utxo, tx_out) = self.tx_spend_context(&options)?;
-        Ok(format!("{}", self.tx_spend_env(&utxo, tx_out.clone())?.c_tx_env().sighash_all()))
+        let Program { compiled, script, p2tr, .. } = self;
+        let (_, _, env) = context(&options, &compiled, &script, &p2tr)?;
+        Ok(format!("{}", env.c_tx_env().sighash_all()))
     }
     /// Generate a transaction spending funds from the program's P2TR address.
     #[wasm_bindgen] pub fn tx_spend (&self, options: Object) -> Maybe<Object> {
-        let (tx_in, utxo, tx_out) = self.tx_spend_context(&options)?;
+        let Program { compiled, script, p2tr, .. } = self;
+        let (tx_in, tx_out, env) = context(&options, &compiled, &script, &p2tr)?;
         let witness = get!(options, "witness", Input::witness)?;
         let mut pset = PartiallySignedTransaction::from_tx(tx_out.as_ref().clone());
-        let env  = self.tx_spend_env(&utxo, tx_out.clone())?;
         let ctrl = script_control_block(&self.script)?;
         let scr  = self.script.clone().into_bytes();
         let sat  = expected_debug!("satisfy": self.compiled.satisfy_with_env(witness, Some(&env)));
         pset.inputs_mut()[0].final_script_witness = Some(final_script_witness(ctrl, scr, sat?)?);
-        tx_json(&tx_in, &expected!("extract final tx": pset.extract_tx())?)
-    }
-    fn tx_spend_context (&self, options: &Object) -> Maybe<(Transaction, TxOut, Arc<Transaction>)> {
-        asserted!(options.is_object());
-        let tx_in   = get!(options, "tx",      Input::tx)?;
-        let to      = get!(options, "to",      Input::address)?;
-        let amount  = get!(options, "amount",  Input::sats)?;
-        let fee     = get!(options, "fee",     Input::sats)?;
-        let (previous_output, utxo) = find_utxo(&tx_in, &self.p2tr)?;
-        let asset_id = required!("utxo: asset cloaked": utxo.asset.explicit())?;
-        let balance  = required!("utxo: value cloaked": utxo.value.explicit())?;
-        let output   = tx_out_split(self.p2tr.clone(), to, asset_id, balance, amount, fee)?;
-        let tx_out   = Arc::new(Transaction {
-            version: 2, lock_time: LockTime::ZERO, output,
-            input: vec![TxIn {
-                previous_output,
-                is_pegin:        false,
-                script_sig:      Script::new(),
-                sequence:        Sequence::MAX,
-                asset_issuance:  AssetIssuance::null(),
-                witness:         TxInWitness {
-                    amount_rangeproof:         None,
-                    inflation_keys_rangeproof: None,
-                    script_witness:            Vec::new(),
-                    pegin_witness:             Vec::new(),
-                },
-            }],
-        });
-        Ok((tx_in, utxo, tx_out))
-    }
-    fn tx_spend_env (&self, utxo: &TxOut, tx_out: Arc<Transaction>) -> Maybe<Env> {
-        let cmr  = self.compiled.commit().cmr();
-        let ctrl = ControlBlock::from_slice(&script_control_block(&self.script)?)?;
-        // FIXME: allow non-elementsregtest
-        let hash = BlockHash::from_str("0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206")?;
-        let scr  = utxo.script_pubkey.clone();
-        let ins  = vec![ElementsUtxo { script_pubkey: scr, asset: utxo.asset, value: utxo.value }];
-        Ok(ElementsEnv::new(tx_out, ins, 0, cmr, ctrl, None, hash))
+        Output::tx(&expected!("extract final tx": pset.extract_tx())?)
     }
 }
+fn context (
+    options: &Object,
+    program: &CompiledProgram,
+    script:  &Script,
+    p2tr:    &Address
+) -> Maybe<(Transaction, Arc<Transaction>, Env)> {
+    asserted!(options.is_object());
+    let tx_in   = get!(options, "tx",      Input::tx)?;
+    let to      = get!(options, "to",      Input::address)?;
+    let amount  = get!(options, "amount",  Input::sats)?;
+    let fee     = get!(options, "fee",     Input::sats)?;
+    let (previous_output, utxo) = find_utxo(&tx_in, p2tr)?;
+    let asset_id = required!("utxo: asset cloaked": utxo.asset.explicit())?;
+    let balance  = required!("utxo: value cloaked": utxo.value.explicit())?;
+    let tx_out   = Arc::new(Transaction {
+        version:   2,
+        lock_time: LockTime::ZERO,
+        output:    split(p2tr.clone(), to, asset_id, balance, amount, fee)?,
+        input: vec![TxIn {
+            previous_output,
+            is_pegin:        false,
+            script_sig:      Script::new(),
+            sequence:        Sequence::MAX,
+            asset_issuance:  AssetIssuance::null(),
+            witness:         TxInWitness {
+                amount_rangeproof:         None,
+                inflation_keys_rangeproof: None,
+                script_witness:            Vec::new(),
+                pegin_witness:             Vec::new(),
+            },
+        }],
+    });
+    let cmr  = program.commit().cmr();
+    let ctrl = ControlBlock::from_slice(&script_control_block(&script)?)?;
+    let hash = genesis()?;
+    let scr  = utxo.script_pubkey.clone();
+    let ins  = vec![ElementsUtxo { script_pubkey: scr, asset: utxo.asset, value: utxo.value }];
+    let env  = ElementsEnv::new(tx_out.clone(), ins, 0, cmr, ctrl, None, hash);
+    Ok((tx_in, tx_out, env))
+}
+fn genesis () -> Maybe<BlockHash> {
+    expected!("failed to parse genesis hash": BlockHash::from_str("0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"))
+}
 /// Generate transaction output for spending part or all of the funds at an address.
-pub(crate) fn tx_out_split (
+pub(crate) fn split (
     owner: Address, spender: Address, asset_id: AssetId, balance: u64, amount: u64, fee: u64,
 ) -> Maybe<Vec<TxOut>> {
     asserted!(amount + fee <= balance);
@@ -181,16 +188,6 @@ fn tx_script_out (asset_id: AssetId, to: Address, value: u64) -> TxOut {
         nonce:   Nonce::Null,
         witness: TxOutWitness::default(),
     }
-}
-/// Wrap transaction info returned to JS-land.
-pub(crate) fn tx_json (tx_in: &Transaction, tx_out: &Transaction) -> Maybe<Object> {
-    let bytes = tx_out.serialize();
-    Ok(obj! {
-        "tx_in"  = format!("{tx_in:?}"),
-        "tx_out" = format!("{tx_out:?}"),
-        "bytes"  = Output::u8a(&bytes),
-        "hex"    = hex::encode(&bytes),
-    })
 }
 pub fn find_utxo (tx: &Transaction, address: &Address) -> Maybe<(OutPoint, TxOut)> {
     let mut previous: Option<OutPoint> = Default::default();

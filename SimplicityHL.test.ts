@@ -1,8 +1,8 @@
 #!/usr/bin/env -S deno run --allow-read --allow-env --allow-run --allow-write=/tmp/fadroma --allow-import=cdn.skypack.dev:443,deno.land:443 --allow-net=127.0.0.1:8941,liquidtestnet.com:443,blockstream.info:443
 import Fn   from '../../library/Fn.ts';
-import Test  from '../../library/Test.ts';
+import Test from '../../library/Test.ts';
 import Btc  from '../Bitcoin/Bitcoin.ts';
-import Simf from './SimplicityHL.ts';
+import SimplicityHL from './SimplicityHL.ts';
 import { Base16 } from '../../library/Number.ts';
 import { p2wpkh } from '@scure/btc-signer';
 import { pubECDSA, pubSchnorr, signSchnorr } from '@scure/btc-signer/utils.js';
@@ -17,9 +17,9 @@ const PUB_SCHNORR = pubSchnorr(PRIVATE);
 /** Sign with test private key. */
 const sign = (data: Uint8Array<ArrayBufferLike> = new Uint8Array()) => signSchnorr(data, PRIVATE);
 /** Test the SimplicityHL support in Fadroma. */
-export default Test(import.meta, 'Simf',
+export default Test(import.meta, 'SimplicityHL',
   // Check that the API entrypoints are present on the WASM module:
-  Test('WASM', () => Simf.Wasm(),
+  Test('WASM', () => SimplicityHL.Wasm(),
     Has('cmr_to_p2tr', Is('function')),
     Has('compile',     Is('function'))),
   // Compile and deploy example programs:
@@ -34,28 +34,34 @@ export default Test(import.meta, 'Simf',
     Btc.Rescan(testHasBalance({ [Btc.ElementsRegtest.REISSUE]: 1,
       bitcoin: Number(Btc.ElementsRegtest.INITIAL.COINS / Btc.ElementsRegtest.DECIMAL) })),
     // And now we can test the included example programs:
+    // - empty program, always runs
     Example(true,  "unit program",       2.4e-7,
       'c40a10263f7436b4160acbef1c36fba4be4d95df181a968afeab5eac247adff7',
       'tex1p9jcvyzkdwdqtf49kta4xpc5g35xkfcexwfsl8v70w2gwttelncyshxjk56',
       'fn main () {}'),
+    // - correct assertion, always runs
     Example(true,  "assert true",        2.7e-7,
       '206e951b8c4e65032096bfa54ed287b804060f55db41d87edffcc566ab8728e8',
       'tex1pa86g4lqqsll5p58qqjcauq0htfcgsvam6rv3ze2y07j8glg7smgska7ufk',
       'fn main () { assert!(true) }'),
-    Example(false, "assert false",       2.7e-7,
+    // - incorrect assertion, always fails
+    Example(false, "assert false fails", 2.7e-7,
       'ec15fa538a70a3550cbc715ac1ee6efbeb4df2ef84abc37fd15b3981019ed88f',
       'tex1pnjn54t0dd9d57n59vnuhvstfdnzcc72zl6dn4lgw0upc26ax0rnqp23aw0',
       'fn main () { assert!(false) }'),
+    // - some jet calls
     Example(true,  "basic jets work",    2.7e-7,
-      'e65e19e139a13583a0a7efb24be13c20d578f06f51b2a7fe7c7b9097072dbabe',
-      'tex1p305439usq06f4maelan8txnxshktvayu9z5gnwu6zrrxm9vmlufqcshcuv',
-      `fn main () { let ab: u16 = <(u8, u8)>::into((0x10, 0x01));     let c:  u16 = 0x1001;     assert!(jet::eq_16(ab, c));
-                    let ab: u8  = <(u4, u4)>::into((0b1011, 0b1101)); let c:  u8  = 0b10111101; assert!(jet::eq_8(ab, c)); }`),
+      '803f7bd1c19fd076f1f6272c266c6ec0f78a3186587a2b9ac64f5bb2c1df6d9c',
+      'tex1py88f4pa9g7wmenpa9xk6pv76psx8spptsedllaqavl9rj0xuvr9sk0gt2r',
+      `fn main () { let ab: u16 = <(u8, u8)>::into((0x10, 0x01));     assert!(jet::eq_16(ab, 0x1001));
+                    let ab: u8  = <(u4, u4)>::into((0b1011, 0b1101)); assert!(jet::eq_8(ab, 0b10111101)); }`),
+    // - witness signing
     Example(true,  "pay to pubkey",      2.7e-7,
       '0b771386a2ee6f0cfb296b0656a98431b77be650ea1eb0f7beb05894fe9bba87',
       'tex1p53f33nnjed42the73v3y2hgdgmhq98fh3d5r05u23fjwc0xyp9fqzn6ulg',
       `fn main () { jet::bip_0340_verify((0x${Base16.encode(PUB_SCHNORR)}, jet::sig_all_hash()), witness::SIG) }`,
-      (sighash: Uint8Array) => ({ SIG: Simf.Witness.Signature(sign(sighash)), })),
+      (sighash: Uint8Array) => ({ SIG: SimplicityHL.Arg.Signature(sign(sighash)), })),
+    // - more complex signing
     Example(true,  "pay to pubkey hash", 2.7e-7,
       'e65e19e139a13583a0a7efb24be13c20d578f06f51b2a7fe7c7b9097072dbabe',
       'tex1p305439usq06f4maelan8txnxshktvayu9z5gnwu6zrrxm9vmlufqcshcuv',
@@ -64,8 +70,10 @@ export default Test(import.meta, 'Simf',
        fn sha2 (string: u256) -> u256 { let hasher: Ctx8 = jet::sha_256_ctx_8_init();
                                         let hasher: Ctx8 = jet::sha_256_ctx_8_add_32(hasher, string);
                                         jet::sha_256_ctx_8_finalize(hasher) }`,
-      (sighash: Uint8Array) => ({ SIG: Simf.Witness.Signature(sign(sighash))
-                                , PUB: Simf.Witness.Signature(sign()), })),
+      (sighash: Uint8Array) => ({ SIG: SimplicityHL.Arg.Signature(sign(sighash))
+                                , PUB: SimplicityHL.Arg.Signature(sign()), })),
+    // - multisig: TODO
+    
     // Shutdown the localnet.
     (btc: Btc) => btc.kill(9)));
 /** Define example program. */
@@ -90,10 +98,10 @@ function Example (
   return Fn.Name(`${name} (${p2tr||'unspecified P2TR'})`, testExample, meta)
   async function testExample ({ rpc, rest }: Btc) {
     // Compile the program.
-    const prog = await Simf(src).compile();
+    const prog = await SimplicityHL(src);
     // Check against pre-defined CMR/P2TR.
-    if (cmr)  { equal(prog.toJSON().cmr, cmr); }
-    if (p2tr) { equal(prog.toJSON().p2tr, p2tr); equal(prog.toString(), p2tr); }
+    if (cmr)  { equal(prog.cmr, cmr); }
+    if (p2tr) { equal(prog.p2tr, p2tr); equal(prog.toString(), p2tr); }
     // Fund program from deployer
     const id = await rpc.sendtoaddress(p2tr, String(1));
     const tx = testSplitTx(await rest.tx(id), p2tr, 1, cost).hex;
@@ -107,8 +115,9 @@ function Example (
     // Try spending from program:
     const fee     = 1e-4;
     const amount  = 1. - fee;
-    const sighash = Base16.decode(prog.sighash({ tx, amount, fee, to: user }).toUpperCase());
-    const witness = wits ? await wits(sighash) : {};
+    const sighash = prog.sighash({ tx, amount, fee, to: user });
+    const witness = wits ? await wits(Base16.decode(sighash.toUpperCase())) : {};
+    console.log({ src, sighash, witness });
     const context = { rpc, rest, tx, amount, fee, witness, to: user };
     if (fail) {
       // TX is expected to fail

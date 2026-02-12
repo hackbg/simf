@@ -1,110 +1,100 @@
-import Fn         from '../../library/Fn.ts';
+import process from 'node:process';
+import Fn from '../../library/Fn.ts';
 import WasmLoader from '../../library/Wasm.ts';
-import { Base16 } from '../../library/Number.ts';
-import type Btc   from '../Bitcoin/Bitcoin.ts';
-import { exit, env, argv, stdout, stderr } from 'node:process';
-export default Simf;
-/** A SimplicityHL program. */
-interface Simf {
-  /** Code of program. */
-  source: string
-  /** Compile program. */
-  compile (_?: object): Promise<Simf.Program>
-}
-/** Define a SimplicityHL program.
+import { Num, Base16 } from '../../library/Number.ts';
+import type Btc from '../Bitcoin/Bitcoin.ts';
+
+export default SimplicityHL;
+
+/** For given SimplicityHL source, construct object representing its compiled form.
   *
   * Example:
   *
   *   #!/usr/bin/env -S deno --allow-read=.
-  *   import { Btc, Simf } from '@hackbg/fadroma';
+  *   import { Btc, SimplicityHL } from '@hackbg/fadroma';
   *   
   *   // Connect:
   *   const { rpc, rest } = await Btc.LiquidTestnet();
   *
   *   // Compile:
-  *   const program = await Simf('...source...').compile();
+  *   const program = await SimplicityHL('...source...');
   *   
   *   // Deploy:
   *   const you = 'tex1000000000000000000000000000000000000000';
-  *   console.log(await program.fund({ rpc, rest, tx, witness, from: you, amount: 1, fee: 1e-4 }));
+  *   console.log(await program.fund({ rpc, rest, tx, amount: 1, fee: 1e-4, from: you }));
   *   
   *   // Invoke:
   *   const witness = { ...see tests for example witness data... };
-  *   console.log(await program.spend({ rpc, rest, tx, witness, to: you, amount: 1, fee: 1e-4 }));
+  *   console.log(await program.spend({ rpc, rest, tx, amount: 1, fee: 1e-4, to: you, witness }));
   *
   **/
-function Simf (source: string): Simf {
-  const program = {
-    source,
-    async compile (options?: object) {
-      const wasm      = await Simf.Wasm();
-      const compiled  = wasm.compile(program.source, options) as Simf.Program;
-      const inspected = compiled.toJSON();
-      const methods   = { fund, spend };
-      return Object.assign(compiled, program, inspected, methods);
-      async function fund ({ rpc, rest, tx, amount, fee, witness, from }: Simf.RpcCtx & Simf.Fund) {
-        const fund = compiled.tx_fund({ tx, amount, fee, witness, from });
-        return await rest.tx(await rpc.sendrawtransaction(fund.hex));
-      }
-      async function spend ({ rpc, rest, tx, amount, fee, witness, to }: Simf.RpcCtx & Simf.Spend) {
-        const spend = compiled.tx_spend({ tx, amount, fee, witness, to });
-        return await rest.tx(await rpc.sendrawtransaction(spend.hex));
-      }
-    }
-  };
-  return program;
+async function SimplicityHL (source: string, args?: SimplicityHL.Args): Promise<SimplicityHL> {
+  const { compile } = await SimplicityHL.Wasm();
+  const program = compile(source, { args }) as SimplicityHL;
+  return Object.assign(program, program.toJSON(), { source, args, fund, spend });
+  async function fund (context: Pick<Btc, 'rpc'|'rest'> & SimplicityHL.Fund) {
+    const { rpc, rest, ...args } = context;
+    return await rest.tx(await rpc.sendrawtransaction(program.tx_fund(args).hex));
+  }
+  async function spend (context: Pick<Btc, 'rpc'|'rest'> & SimplicityHL.Spend) {
+    const { rpc, rest, ...args } = context;
+    return await rest.tx(await rpc.sendrawtransaction(program.tx_spend(args).hex));
+  }
 }
-/** SimplicityHL utilities. */
-namespace Simf {
 
-  /** Compiled SimplicityHL program (WASM object). */
-  export interface Program extends Simf {
-    /** The program's P2TR address. */
-    toString (): object
-    /** The program's detailed description. */
-    toJSON   (): object
-    /** Transfer funds to program. */
-    fund     (_: Btc & Fund):  Promise<string>
-    /** Generate transaction to transfer funds to program. */
-    tx_fund  (_: Fund):        WasmTx
-    /** Transfer funds from program. */
-    spend    (_: Btc & Spend): Promise<string>
-    /** Generate transaction to spend funds from program. */
-    tx_spend (_: Spend):       WasmTx
-    /** Get sighash for spend to sign by witness. */
-    sighash  (_: Spend):       string;
-  };
+/** Compiled SimplicityHL program (WASM object). */
+interface SimplicityHL {
+  /** Code of program. */
+  source: string
+  /** CMR hash .*/
+  cmr:    string
+  /** The program's P2TR address. */
+  p2tr:   string
+  /** The program's P2TR address. */
+  toString (): object
+  /** The program's detailed description. */
+  toJSON   (): object
+  /** Generate transaction to transfer funds to program. */
+  tx_fund  (_: SimplicityHL.Fund): SimplicityHL.Transaction
+  /** Transfer funds to program. */
+  fund     (_: Pick<Btc, 'rpc'|'rest'> & SimplicityHL.Fund):  Promise<string>
+  /** Get sighash for spend to sign by witness. */
+  sighash  (_: SimplicityHL.Spend): string;
+  /** Generate transaction to spend funds from program. */
+  tx_spend (_: SimplicityHL.Spend): SimplicityHL.Transaction
+  /** Transfer funds from program. */
+  spend    (_: Pick<Btc, 'rpc'|'rest'> & SimplicityHL.Spend): Promise<string>
+}
 
-  export type Tx     = unknown;
-
-  export type TxCtx  = { tx: Tx, amount, fee, witness? };
-
-  export type RpcCtx = { rpc, rest };
-
-  export type Fund   = TxCtx & { from: string }
-
-  export type Spend  = TxCtx & { to:   string };
-
-  /** SimplicityHL WASM module API. */
-  export type Wasm = {
-    cmr_to_p2tr: Fn.Returns<string>,
-    compile:     Fn<[string, object?], Program>,
-    toJSON:      Fn.Returns<object>,
-  };
+/** SimplicityHL integration. */
+namespace SimplicityHL {
 
   /** Load SimplicityHL WASM module. */
   export function Wasm (
-    wasm = env['FADROMA_SIMF_WASM'] || import.meta.resolve('./pkg/fadroma_simf_bg.wasm'),
-    wrap = env['FADROMA_SIMF_WRAP'] || import.meta.resolve('./pkg/fadroma_simf.js'),
+    wasm = process.env['FADROMA_SIMF_WASM'] || import.meta.resolve('./pkg/fadroma_simf_bg.wasm'),
+    wrap = process.env['FADROMA_SIMF_WRAP'] || import.meta.resolve('./pkg/fadroma_simf.js'),
   ) {
     return WasmLoader<Wasm>(wasm, wrap)()
   }
 
-  /** Transaction returned by SimplicityHL WASM module. */
-  export type WasmTx = {
-    hex:         string,
+  /** SimplicityHL WASM module API. */
+  export interface Wasm {
+    cmr_to_p2tr: Fn.Returns<string>,
+    compile:     Fn<[string, object?], SimplicityHL>,
+    toJSON:      Fn.Returns<object>,
+  }
+
+  /** Parameters for fund transaction. */
+  export interface Fund { tx: unknown, amount: Num, fee: Num, from: string }
+
+  /** Parameters for spend transaction. */
+  export interface Spend { tx: unknown, amount: Num, fee: Num, to: string, witness?: Args }
+
+  /** Partially signed transaction from SimplicityHL WASM module. */
+  export interface Transaction {
     bytes:       Uint8Array,
-    decoded:     {
+    hex:         string,
+    tx:          {
       input:     unknown[]
       output:    unknown[]
       version:   unknown
@@ -112,25 +102,15 @@ namespace Simf {
     }
   };
 
-  /** Simplicity CLI. */
-  export const Cli = async function simfCli (program: Simf) {
-    const [_, __, command, ..._args] = argv;
-    const compiled = await program.compile();
-    stderr.write(JSON.stringify(compiled.toJSON(), null, 2));
-    switch (command.trim()) {
-      default:
-        stderr.write('Commands:\n  build\n  deposit\n  withdraw');
-        return exit(1);
-    }
-    function showOutput (output: unknown) {
-      const o = output as { stdout: string, stderr: string };
-      stderr.write(o.stderr);
-      stdout.write(o.stdout);
-      return output;
-    }
-  }
-  export namespace Witness {
-    /** Define signature field in witness data. */
+  /** Collection of SimplicityHL program arguments (template parameters or witness values). */
+  export interface Args extends Record<string, Arg> {}
+
+  /** SimplicityHL program argument (template parameter or witness value). */
+  export interface Arg { type: string, value: unknown };
+
+  /** SimplicityHL program argument constructors. */
+  export namespace Arg {
+    /** SimplicityHL signature field. */
     export function Signature (
       value: Uint8Array<ArrayBufferLike> = new Uint8Array(new Array(32).fill(0))
     ) {

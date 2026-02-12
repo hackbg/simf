@@ -99,4 +99,14 @@ impl Output {
         u8a.copy_from(bytes);
         u8a
     }
+
+    /// Wrap transaction info returned to JS-land.
+    pub fn tx (tx: &Transaction) -> Maybe<Object> {
+        let bytes = tx.serialize();
+        Ok(obj! {
+            "tx"    = format!("{tx:?}"),
+            "hex"   = hex::encode(&bytes),
+            "bytes" = Output::u8a(&bytes),
+        })
+    }
 }
