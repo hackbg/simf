@@ -6,7 +6,7 @@ DOCKER  := env("DOCKER", "docker") + " "
 BUILDER := "time " + DOCKER
 BUILD   := BUILDER + " build "
 RUN     := BUILDER + "run --rm"
-TTY     := RUN     + "-it "
+TTY     := RUN     + " -it "
 
 # List tasks
 list:
@@ -67,7 +67,7 @@ wasm-release:
 # Open Bacon TUI to iterate on WASM modules in container.
 wasm-bacon:
   @just wasm-img
-  ${TTY_WASM} "just bacon"
+  ${TTY_WASM} "bacon -s"
 
 # Open WASM build shell to iterate on WASM modules in container.
 wasm-sh:
