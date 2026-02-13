@@ -41,11 +41,19 @@ and `export function __assert_fail () {}` in `stub.js` while we're looking how t
 Starting with the CMR (Commitment Merkle root) hash, you can get its corresponding
 **P2TR (Pay to Taproot)** address using the `cmr_to_p2tr` function.
 
+```ts
+// This example is not written yet!
+```
+
 Sending funds to a P2TR address is equivalent to deploying the corresponding program.
 
 ### Compile SimplicityHL to P2TR
 
 Starting with SimplicityHL source code, you can **call `compile` to compute its CMR and P2TR**.
+
+```ts
+// This example is not written yet!
+```
 
 The returned `Program` object's `tx_fund` and `tx_spend` generate transactions for
 respectively deploying and invoking the SimplicityHL program.
@@ -54,9 +62,17 @@ respectively deploying and invoking the SimplicityHL program.
 
 > This part is not documented yet!
 
+```ts
+// This example is not written yet!
+```
+
 #### Execute SimplicityHL program
 
 > This part is not documented yet!
+
+```ts
+// This example is not written yet!
+```
 
 ## Development
 
