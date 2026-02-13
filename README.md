@@ -97,6 +97,9 @@ See comment in `Dockerfile` for more info.
 
 This project applies techniques pioneered by the following projects:
 
+* simplicity-lang (CC0)
+  https://docs.rs/simplicity-lang/0.7.0/src/simplicity/bit_machine/tracker.rs.html#137-140
+
 * simply (MIT license)
   https://github.com/starkware-bitcoin/simply
 

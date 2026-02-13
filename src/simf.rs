@@ -63,25 +63,48 @@ pub fn script_to_taproot (script: Script) -> Maybe<TaprootSpendInfo> {
     /// Generate a transaction to spend funds from the program's P2TR address.
     #[wasm_bindgen(js_name = spendTx)] pub fn spend_tx (&self, options: Object) -> Maybe<Object> {
         let Program { compiled, script, p2tr, .. } = self;
-        let (tx, env)       = spend_context(&options, &compiled, &script, &p2tr)?;
-        let witnessed       = get!(options, "witness", Input::witness)?;
-        let satisfied       = expected_debug!("satisfy": compiled.satisfy(witnessed.clone()))?;
-        let mut tracker     = DefaultTracker::new(satisfied.debug_symbols());//.with_log_level(log_level);
-        let pruned          = satisfied.redeem().prune_with_tracker(&env, &mut tracker)?;
-        let pruned_cmr      = pruned.cmr().as_ref().to_vec();
-        let (wits, prog)    = pruned.to_vec_with_witness();
-        let mut machine     = BitMachine::for_program(&pruned)?;
-        let result          = expected_debug!("execute": machine.exec(&pruned, &env))?;
-        panic!("result={result}");
-        let control         = control_block(&self.script)?;
-        let script_witness  = vec![wits, prog, pruned_cmr, control.clone()];
+        debug!("=> Spend p2tr={p2tr:?}");
+        debug!("=> Spend script={script:?}");
+        let (tx, env) = spend_context(&options, &compiled, &script, &p2tr)?;
+        let witnessed = get!(options, "witness", Input::witness)?;
+        debug!("=> Spend witnessed={witnessed:?}");
+        let satisfied = expected_debug!("satisfy": compiled.satisfy(witnessed.clone()))?;
+        debug!("=> Spend satisfied={satisfied:?}");
+        let redeem = satisfied.redeem();
+        debug!("=> Spend redeem={redeem:?}");
+        let bounds = redeem.bounds();
+        debug!("=> Spend bounds={bounds:?}");
+        asserted!(bounds.cost.is_consensus_valid());
+        debug!("=> Spend cost={:?}", bounds.cost);
+        let mut tracker = DefaultTracker::new(satisfied.debug_symbols())
+            .with_log_level(TrackerLogLevel::Debug)
+            .with_debug_sink(       |a, b|debug!("=> SimplicityHL DEBUG {a} {b}"))
+            .with_jet_trace_sink(|a, b, c|debug!("=> SimplicityHL JET   {a} {b:?} {c:?}"))
+            .with_warning_sink(        |w|debug!("=> SimplicityHL WARN  {w}"));
+        let pruned = redeem.prune_with_tracker(&env, &mut tracker)?;
+        debug!("=> Spend pruned={pruned:?}");
+        let mut machine = BitMachine::for_program(&pruned)?;
+        let result = expected_debug!("execute": machine.exec_with_tracker(&pruned, &env, &mut tracker))?;
+        debug!("=> Spend result={result:?}");
+        let control = control_block(&self.script)?;
+        debug!("=> Spend control={control:?}");
+        //let pruned_cmr   = pruned.cmr().as_ref().to_vec();
+        //let (wits, prog) = pruned.to_vec_with_witness();
+        //let mut script_witness = vec![wits, prog, pruned_cmr, control.clone()];
+        let (program, witness) = redeem.encode_to_vec();
+        let mut script_witness = vec![witness, program, script.as_bytes().into(), control];
+        if let Some(padding_bytes) = bounds.cost.get_padding(&script_witness) {
+            // Annex has to be removed from the stack
+            // https://github.com/ElementsProject/elements/blob/9748c00c3344b815d75c4b5c251b341fb34fa80f/src/script/interpreter.cpp#L3275
+            script_witness.push(padding_bytes);
+        }
+        asserted!(bounds.cost.is_budget_valid(&script_witness));
         let mut tx          = Arc::unwrap_or_clone(tx);
-        tx.input[0].witness = TxInWitness { script_witness, ..Default::default() };
+        tx.input[0].witness = TxInWitness { script_witness: script_witness.clone(), ..Default::default() };
         //Output::tx(&tx)
-        let mut pset            = PartiallySignedTransaction::from_tx(tx);
-        let satisfied       = expected_debug!("satisfy": compiled.satisfy(witnessed))?;
-        let final_witness   = final_witness(control, script.as_bytes().into(), satisfied)?;
-        pset.inputs_mut()[0].final_script_witness = Some(final_witness);
+        let mut pset        = PartiallySignedTransaction::from_tx(tx);
+        // Add padding to the script witness if budget is exceeded
+        pset.inputs_mut()[0].final_script_witness = Some(script_witness);
         Output::tx(&expected!("extract final tx": pset.extract_tx())?)
     }
     /// Output the hash which must be signed by the witness for the spend to be valid.
@@ -147,25 +170,6 @@ pub(crate) fn send (
         let remain = tx_output(asset_id, owner, remain);
         vec![TxOut::new_fee(fee, asset_id), spent, remain]
     })
-}
-pub fn final_witness (
-    control: Vec<u8>, script: Vec<u8>, satisfied: SatisfiedProgram
-) -> Maybe<Vec<Vec<u8>>> {
-    let redeem = satisfied.redeem();
-    let bounds = redeem.bounds();
-    asserted!(bounds.cost.is_consensus_valid());
-    let (program, witness) = redeem.encode_to_vec();
-    let mut final_witness = vec![witness, program, script, control];
-    // Add padding to the script witness if budget is exceeded
-    if let Some(padding_bytes) = bounds.cost.get_padding(&final_witness) {
-        // Annex has to be removed from the stack
-        // https://github.com/ElementsProject/elements/blob/9748c00c3344b815d75c4b5c251b341fb34fa80f/src/script/interpreter.cpp#L3275
-        final_witness.push(padding_bytes);
-    } else {
-        //println!("No padding needed");
-    }
-    asserted!(bounds.cost.is_budget_valid(&final_witness));
-    Ok(final_witness)
 }
 pub fn control_block (script: &Script) -> Maybe<Vec<u8>> {
     let tap = script_to_taproot(script.clone())?;

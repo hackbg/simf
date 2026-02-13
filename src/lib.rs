@@ -1,27 +1,17 @@
+// Crate-wide imports:
+
 extern crate console_error_panic_hook;
-pub(crate) use std::{
-    str::FromStr,
-    sync::Arc
-};
+pub(crate) use std::{str::FromStr, sync::Arc};
 pub(crate) use wasm_bindgen::prelude::*;
 pub(crate) use web_sys::console::{log_1, debug_1, warn_1};
 #[allow(unused)] pub(crate) use js_sys::{
-    Array,
-    BigInt,
-    Boolean,
-    Error,
-    JSON,
-    JsString,
-    Number,
-    Object,
-    Reflect,
-    Uint8Array,
+    Array, BigInt, Boolean, Error, JSON, JsString, Number, Object, Reflect, Uint8Array,
 };
 #[allow(unused)] pub(crate) use bitcoin_hashes::Hash;
 #[allow(unused)] pub(crate) use simplicityhl::{
     Arguments, CompiledProgram, SatisfiedProgram, Value, WitnessValues,
     str::WitnessName,
-    tracker::DefaultTracker,
+    tracker::{DefaultTracker, TrackerLogLevel},
     simplicity::{
         Amr, BitIter, BitMachine, Cmr, CommitNode, Ihr, leaf_version,
         human_encoding::Forest,
@@ -40,10 +30,10 @@ pub(crate) use web_sys::console::{log_1, debug_1, warn_1};
         taproot::{ControlBlock, LeafVersion, TaprootBuilder, TaprootSpendInfo},
     }
 };
-/// Standard result type
-pub(crate) type Maybe<T> = Result<T, JsError>;
-/// Concrete type of [ElementsEnv] used.
-pub type Env = simplicityhl::simplicity::jet::elements::ElementsEnv<Arc<Transaction>>;
+
+// A generous helping of utility macros,
+// to make writing things less annoying:
+
 /// Log to JS console.
 #[allow(unused)] macro_rules! log(($msg:literal $(, $expr:expr)*) => {
     log_1(&format!($msg $(, $expr)*).into())});
@@ -93,6 +83,15 @@ macro_rules! obj(($($id:literal = $val:expr),+ $(,)?) => {{
     let object = Object::new();
     $(set!(object, $id, JsValue::from($val));)+
     object }});
-// Above macros are available in subsequent modules:
+
+// The above macros are available in all subsequent modules:
+
 mod simf; pub use self::simf::*;
+
 mod simf_parse; pub use self::simf_parse::*;
+
+/// Concrete type of [ElementsEnv] used.
+pub type Env = simplicityhl::simplicity::jet::elements::ElementsEnv<Arc<Transaction>>;
+
+/// Standard result type
+pub(crate) type Maybe<T> = Result<T, JsError>;
