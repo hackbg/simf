@@ -31,8 +31,10 @@ export default SimplicityHL;
 async function SimplicityHL (source: string, args?: SimplicityHL.Args): Promise<SimplicityHL> {
   const { compile } = await SimplicityHL.Wasm();
   const program = compile(source, { args }) as SimplicityHL;
-  const fields = (program as unknown as  { toJSON (): unknown }).toJSON()
-  return Object.assign(program, fields, { fund, spend });
+  const fields = (program as unknown as  { toJSON (): unknown }).toJSON();
+  const result = Object.assign(program, fields, { fund, spend });
+  if (typeof result.args === 'string') result.args = JSON.parse(result.args as unknown as string);
+  return result
   async function fund (context: Pick<Btc, 'rpc'|'rest'> & SimplicityHL.Fund) {
     const { rpc, rest, ...options } = context;
     return await rest.tx(await rpc.sendrawtransaction(program.fundTx(options).hex));
@@ -51,6 +53,8 @@ interface SimplicityHL {
   cmr:         string
   /** The program's P2TR address. */
   p2tr:        string
+  /** The program's template arguments. */
+  args?:       SimplicityHL.Args,
   /** Transfer funds to program. */
   fund         (_: Pick<Btc, 'rpc'|'rest'> & SimplicityHL.Fund):  Promise<string>
   /** Generate transaction to transfer funds to program. */
