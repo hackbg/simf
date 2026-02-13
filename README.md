@@ -60,14 +60,19 @@ respectively deploying and invoking the SimplicityHL program.
 
 ## Development
 
-### Quick start
-
-See `Justfile`.
+See `Justfile` for pre-configured workflow operations.
 
 ### Dependencies
 
+The standard project workflow depends on:
+
   * Just
-  * Docker (or Podman/Buildah)
+  * Docker (or Podman when env `DOCKER=podman`)
+
+#### Quick setup
+
+If you have Nix and Direnv, `direnv allow` the repo
+for a classic Nix shell with `just` and `podman`.
 
 ### Run tests
 
