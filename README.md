@@ -60,7 +60,11 @@ respectively deploying and invoking the SimplicityHL program.
 
 ## Development
 
-See `Justfile` for pre-configured workflow operations.
+See `Justfile` for pre-configured workflow operations:
+
+```
+just  # list commands
+```
 
 ### Dependencies
 
@@ -76,22 +80,41 @@ for a classic Nix shell with `just` and `podman`.
 
 ### Run tests
 
-Having checked out this repo, use the `test-*` commands in the Justfile to run the tests.
+Having checked out this repo, use the `test*` commands in the Justfile to run the tests:
 
-This repo is an excerpt from a larger monorepo (currently unpackaged/unpublished),
-so we've provided a test image with the required context.
+```
+just test      # run tests
+just test-img  # rebuild test image
+```
 
-See comment in `Dockerfile` for info about test context.
+>This repo is an excerpt from a larger monorepo, https://github.com/hackbg/fadroma,
+>which is currently unpackaged/unpublished.
+
+>As some of the dependencies involved are only available via Git checkout,
+>we've provided a test container image (`test` target in `Dockerfile`) with
+>the test context already provided.
+>
+>This image clones a pinned commit of Fadroma when built;
+>this repo's tests then run in a subdirectory of that.
 
 ### Iterate
 
-Having made changes to the source code, use the `wasm-*` commands in the Justfile
+Having made changes to the source code, use the `wasm*` commands in the Justfile
 to recompile the WASM binary.
+```
+just wasm      # rebuild wasm module
+just test-img  # rebuild wasm builder image
+```
 
-As the Rust/C ABI boundary is slightly fragile, we provide a build image with
-matching versions of build dependencies.
-
-See comment in `Dockerfile` for more info.
+>As the Rust/C ABI boundary is slightly fragile, we provide a build image
+>(`wasm` target in `Dockerfile`) with matching versions of build dependencies.
+>
+>Otherwise, compatibility issues may be encountered, as indicated by
+>multiple missing "env" imports in the WASM's ABI.
+>
+>Ostensibly, the incompatibility is between the Clang version that was
+>used to build the Rust compiler being used, vs. the Clang version that
+>is currently available on the system (which compiles the jets from C).
 
 ## Attribution
 
