@@ -29,6 +29,6 @@ RUN cd /usr/local && curl -Lf "${ELEMENTS}" | tar --strip-components=1 -xz
 # This draws the rest of the owl.
 ARG FADROMA_REF="37dcb63"
 ARG FADROMA_URL="https://github.com/hackbg/fadroma"
-RUN git clone --progress -b v3-alpha "${FADROMA_URL}" /test && cd /test && git checkout "${FADROMA_REF}"
-WORKDIR /test
+RUN git clone --progress -b v3-alpha "${FADROMA_URL}" /fadroma && cd /fadroma && git checkout "${FADROMA_REF}"
+WORKDIR /fadroma
 ENTRYPOINT [ "/usr/bin/bash", "-c" ]

@@ -92,7 +92,7 @@ inspect:
 
 # Test container:
 IMG_TEST := "hackbg/fadroma-simplicity:test"
-VOL_TEST := " -v .:/test/platform/SimplicityHL:rw "
+VOL_TEST := " -v .:/fadroma/platform/SimplicityHL:rw "
 RUN_TEST := RUN + VOL_TEST + IMG_TEST
 TTY_TEST := TTY + VOL_TEST + IMG_TEST
 
