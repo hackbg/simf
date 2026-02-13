@@ -4,8 +4,8 @@ import Test from '../../library/Test.ts';
 import Btc  from '../Bitcoin/Bitcoin.ts';
 import SimplicityHL from './SimplicityHL.ts';
 import { Base16 } from '../../library/Number.ts';
-import { p2wpkh } from '@scure/btc-signer';
-import { pubECDSA, pubSchnorr, signSchnorr } from '@scure/btc-signer/utils.js';
+import { p2wpkh } from 'npm:@scure/btc-signer';
+import { pubECDSA, pubSchnorr, signSchnorr } from 'npm:@scure/btc-signer/utils.js';
 import { deepStrictEqual as equal, rejects } from 'node:assert';
 const { is: Is, has: Has } = Test;
 /** Non-private key. */
