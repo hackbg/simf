@@ -60,24 +60,28 @@ pub fn script_to_taproot (script: Script) -> Maybe<TaprootSpendInfo> {
         let p2tr     = script_to_p2tr(script.clone())?;
         Ok(Self { source, p2tr, debug, prune, args, compiled, commit, script, })
     }
-    /// Use this in JS to get the properties of the compiled program.
-    #[wasm_bindgen(js_name = toJSON)] pub fn to_json (&self) -> Object {
-        Output::program(&self).unwrap_or_else(|e|JsValue::from(e).into())
-    }
-    /// Programs stringify to their P2TR addresses.
-    #[wasm_bindgen(js_name = toString)] pub fn to_string (&self) -> String {
-        format!("{}", &self.p2tr)
-    }
     /// Generate a transaction to spend funds from the program's P2TR address.
     #[wasm_bindgen(js_name = spendTx)] pub fn spend_tx (&self, options: Object) -> Maybe<Object> {
         let Program { compiled, script, p2tr, .. } = self;
-        let (tx, env) = spend_context(&options, &compiled, &script, &p2tr)?;
-        let witness   = get!(options, "witness", Input::witness)?;
-        let mut pset  = PartiallySignedTransaction::from_tx(tx.as_ref().clone());
-        let control   = control_block(&self.script)?;
-        let script    = self.script.clone().into_bytes();
-        let satisfied = expected_debug!("satisfy": self.compiled.satisfy_with_env(witness, Some(&env)));
-        pset.inputs_mut()[0].final_script_witness = Some(final_witness(control, script, satisfied?)?);
+        let (tx, env)       = spend_context(&options, &compiled, &script, &p2tr)?;
+        let witnessed       = get!(options, "witness", Input::witness)?;
+        let satisfied       = expected_debug!("satisfy": compiled.satisfy(witnessed.clone()))?;
+        let mut tracker     = DefaultTracker::new(satisfied.debug_symbols());//.with_log_level(log_level);
+        let pruned          = satisfied.redeem().prune_with_tracker(&env, &mut tracker)?;
+        let pruned_cmr      = pruned.cmr().as_ref().to_vec();
+        let (wits, prog)    = pruned.to_vec_with_witness();
+        let mut machine     = BitMachine::for_program(&pruned)?;
+        let result          = expected_debug!("execute": machine.exec(&pruned, &env))?;
+        panic!("result={result}");
+        let control         = control_block(&self.script)?;
+        let script_witness  = vec![wits, prog, pruned_cmr, control.clone()];
+        let mut tx          = Arc::unwrap_or_clone(tx);
+        tx.input[0].witness = TxInWitness { script_witness, ..Default::default() };
+        //Output::tx(&tx)
+        let mut pset            = PartiallySignedTransaction::from_tx(tx);
+        let satisfied       = expected_debug!("satisfy": compiled.satisfy(witnessed))?;
+        let final_witness   = final_witness(control, script.as_bytes().into(), satisfied)?;
+        pset.inputs_mut()[0].final_script_witness = Some(final_witness);
         Output::tx(&expected!("extract final tx": pset.extract_tx())?)
     }
     /// Output the hash which must be signed by the witness for the spend to be valid.
@@ -93,6 +97,14 @@ pub fn script_to_taproot (script: Script) -> Maybe<TaprootSpendInfo> {
         let (previous, _, asset_id, balance, amount, fee) = context(&options, &from)?;
         let output = send(from.clone(), self.p2tr.clone(), asset_id, balance, amount, fee)?;
         Output::tx(&transaction(output, vec![tx_input(previous)]))
+    }
+    /// Use this in JS to get the properties of the compiled program.
+    #[wasm_bindgen(js_name = toJSON)] pub fn to_json (&self) -> Object {
+        Output::program(&self).unwrap_or_else(|e|JsValue::from(e).into())
+    }
+    /// Programs stringify to their P2TR addresses.
+    #[wasm_bindgen(js_name = toString)] pub fn to_string (&self) -> String {
+        format!("{}", &self.p2tr)
     }
 }
 fn context (options: &Object, from: &Address) -> Maybe<(OutPoint, TxOut, AssetId, u64, u64, u64)> {

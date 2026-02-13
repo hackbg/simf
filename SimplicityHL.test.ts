@@ -59,19 +59,21 @@ export default Test(import.meta, 'SimplicityHL',
     Example(true,  "pay to pubkey",      2.7e-7,
       '0b771386a2ee6f0cfb296b0656a98431b77be650ea1eb0f7beb05894fe9bba87',
       'tex1p53f33nnjed42the73v3y2hgdgmhq98fh3d5r05u23fjwc0xyp9fqzn6ulg',
-      `fn main () { jet::bip_0340_verify((0x${Base16.encode(PUB_SCHNORR)}, jet::sig_all_hash()), witness::SIG) }`,
+      `fn main () { jet::bip_0340_verify((param::PK, jet::sig_all_hash()), witness::SIG) }`,
+      () => ({ PK: SimplicityHL.Arg.Pubkey(PUB_SCHNORR) }),
       (sighash: Uint8Array) => ({ SIG: SimplicityHL.Arg.Signature(sign(sighash)), })),
     // - more complex signing
     Example(true,  "pay to pubkey hash", 2.7e-7,
       'e65e19e139a13583a0a7efb24be13c20d578f06f51b2a7fe7c7b9097072dbabe',
       'tex1p305439usq06f4maelan8txnxshktvayu9z5gnwu6zrrxm9vmlufqcshcuv',
-      `fn main () { assert!(jet::eq_256(sha2(witness::PUB), 0x${Base16.encode(PUB_SCHNORR)}));
+      `fn main () { assert!(jet::eq_256(sha2(witness::PUB), param::PKH));
                     jet::bip_0340_verify((witness::PUB, jet::sig_all_hash()), witness::SIG) }
        fn sha2 (string: u256) -> u256 { let hasher: Ctx8 = jet::sha_256_ctx_8_init();
                                         let hasher: Ctx8 = jet::sha_256_ctx_8_add_32(hasher, string);
                                         jet::sha_256_ctx_8_finalize(hasher) }`,
+      () => ({ PKH: SimplicityHL.Arg.Pubkey(PUB_SCHNORR) }),
       (sighash: Uint8Array) => ({ SIG: SimplicityHL.Arg.Signature(sign(sighash))
-                                , PUB: SimplicityHL.Arg.Signature(sign()), })),
+                                , PUB: SimplicityHL.Arg.Pubkey(PUB_ECDSA), })),
     // - multisig: TODO
     
     // Shutdown the localnet.
@@ -90,15 +92,17 @@ function Example (
   p2tr: string,
   /** Source code of program. */
   src:  string,
+  /** Function that provides parameter data. */
+  args?: Fn.Returns<Fn.Async<object>>,
   /** Function that provides witness data. */
-  wits?: Fn<[Uint8Array], Fn.Async<object>>
+  wits?: Fn<[Uint8Array], Fn.Async<object>>,
 ) {
   const fail = !pass
   const meta = { name, cost, cmr, p2tr, src, fail, wits };
   return Fn.Name(`${name} (${p2tr||'unspecified P2TR'})`, testExample, meta)
   async function testExample ({ rpc, rest }: Btc) {
     // Compile the program.
-    const prog = await SimplicityHL(src);
+    const prog = await SimplicityHL(src, args ? await args() : undefined);
     // Check against pre-defined CMR/P2TR.
     if (cmr)  { equal(prog.cmr, cmr); }
     if (p2tr) { equal(prog.p2tr, p2tr); equal(prog.toString(), p2tr); }
@@ -117,7 +121,7 @@ function Example (
     const amount  = 1. - fee;
     const sighash = prog.spendSighash({ tx, amount, fee, to: user });
     const witness = wits ? await wits(Base16.decode(sighash.toUpperCase())) : {};
-    console.log({ src, sighash, witness });
+    console.log({ prog, sighash, witness });
     const context = { rpc, rest, tx, amount, fee, witness, to: user };
     if (fail) {
       // TX is expected to fail

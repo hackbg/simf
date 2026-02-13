@@ -105,13 +105,26 @@ namespace SimplicityHL {
   /** SimplicityHL program argument (template parameter or witness value). */
   export interface Arg { type: string, value: unknown };
 
-  /** SimplicityHL program argument constructors. */
+  /** SimplicityHL program argument constructors.
+    *
+    * TODO: Fully cover https://github.com/BlockstreamResearch/SimplicityHL/blob/master/src/types.rs#L815 */
   export namespace Arg {
-    /** SimplicityHL signature field. */
-    export function Signature (
+    /** 32-byte array, represented as arbitrary type name + Base16(U256) */
+    const U256 = (
+      type: string
+    ) => (
       value: Uint8Array<ArrayBufferLike> = new Uint8Array(new Array(32).fill(0))
-    ) {
-      return { type: "Signature", value: `0x${Base16.encode(value)}` }
-    }
+    ) => ({
+      type, value: `0x${Base16.encode(value)}`
+    });
+
+    /** SimplicityHL signature field (32 bytes). */
+    export const Signature = U256('Signature');
+
+    /** SimplicityHL public key field (32 bytes). */
+    export const Pubkey = U256('Pubkey');
+
+    /** SimplicityHL message field (32 bytes). */
+    export const Message = U256('Message');
   }
 }

@@ -21,8 +21,9 @@ pub(crate) use web_sys::console::{log_1, debug_1, warn_1};
 #[allow(unused)] pub(crate) use simplicityhl::{
     Arguments, CompiledProgram, SatisfiedProgram, Value, WitnessValues,
     str::WitnessName,
+    tracker::DefaultTracker,
     simplicity::{
-        Amr, BitIter, Cmr, CommitNode, Ihr, leaf_version,
+        Amr, BitIter, BitMachine, Cmr, CommitNode, Ihr, leaf_version,
         human_encoding::Forest,
         jet::{Elements, elements::{ElementsEnv, ElementsUtxo}},
     },
