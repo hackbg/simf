@@ -20,39 +20,27 @@ atop an ephemeral Elements localnet in `elementsregtest` mode.
 
 ## Usage
 
-### Load the module
+### Load the WASM module
 
-You can [download a build](https://github.com/hackbg/simf/releases) or [compile the module yourself](#build-the-wasm-binary).
+You can [download a build](https://github.com/hackbg/simf/releases)
+or [compile the module from the included source](#iterate).
 
-```ts
-// This example is not written yet!
-```
-
-#### Polyfill `env.__assert_fail`
-
-There is a remaining `env` import, `__assert_fail`, which needs to be polyfilled
-to the WASM's `wasm-bindgen` wrapper. In Deno and browsers we can use a stub module
-in the global import map for this. For Node you could 
-try `"env": "./stub.js"` in `package.json`
-and `export function __assert_fail () {}` in `stub.js` while we're looking how to provide this out of the box.
-
-### Convert CMR to P2TR 
-
-Starting with the CMR (Commitment Merkle root) hash, you can get its corresponding
-**P2TR (Pay to Taproot)** address using the `cmr_to_p2tr` function.
+When `pkg/fadroma_simf_bg.wasm` is in place, import the SDK:
 
 ```ts
-// This example is not written yet!
+#!/usr/bin/env deno run
+import { SimplicityHL } from 'fadroma';
+await SimplicityHL.Wasm();
 ```
-
-Sending funds to a P2TR address is equivalent to deploying the corresponding program.
 
 ### Compile SimplicityHL to P2TR
 
 Starting with SimplicityHL source code, you can **call `compile` to compute its CMR and P2TR**.
 
 ```ts
-// This example is not written yet!
+const program = await SimplicityHL(`fn main () {
+  assert!(true);
+}`);
 ```
 
 The returned `Program` object's `tx_fund` and `tx_spend` generate transactions for
@@ -73,6 +61,17 @@ respectively deploying and invoking the SimplicityHL program.
 ```ts
 // This example is not written yet!
 ```
+
+### Convert CMR to P2TR 
+
+Starting with the CMR (Commitment Merkle root) hash, you can get its corresponding
+**P2TR (Pay to Taproot)** address using the `cmr_to_p2tr` function.
+
+```ts
+// This example is not written yet!
+```
+
+Sending funds to a P2TR address is equivalent to deploying the corresponding program.
 
 ## Development
 
@@ -115,8 +114,8 @@ just test-img  # rebuild test image
 
 ### Iterate
 
-Having made changes to the source code, use the `wasm*` commands in the Justfile
-to recompile the WASM binary.
+On first checkout, as well as after making changes to the Rust source code,
+use the `wasm*` commands in the Justfile to recompile the WASM binary:
 ```
 just wasm      # rebuild wasm module
 just test-img  # rebuild wasm builder image
