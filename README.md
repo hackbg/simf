@@ -3,11 +3,11 @@
 > We're building an example Simplicity dApp with it [here](https://github.com/hackbg/simf-app),
 > CLI and API first!
 
-# Standalone SimplicityHL Support in Fadroma
+# SimplicityHL Standalone
 
 ## Introduction
 
-This is how to do the following from JavaScript and TypeScript,
+This is how to do the following from any JavaScript environment,
 by means of an embedded WebAssembly module:
 
 * [**compile**](#compile-simplicityhl-to-p2tr) a Bitcoin smart contract from SimplicityHL source code
@@ -130,7 +130,7 @@ const program = await SimplicityHL(SOURCE, {
 console.log({ program });
 ```
 
-Here's some of what you will find in the `SimplicityHL` program descriptor contains:
+Here's some of what you will find in the `SimplicityHL` program descriptor:
 
 ```js
 {
@@ -158,35 +158,54 @@ Here's some of what you will find in the `SimplicityHL` program descriptor conta
 
 ### Commitment
 
-The main output of the `await SimplicityHL('/*source*/', {/*args*/})` compile call is
-the P2TR (Pay-to-Taproot) address which corresponds to the compiled program.
-
-Compiling a program to P2TR address and then transferring funds to that address,
-together correspond to what `TR:1.1` defines as **commitment time**.
+The **main output** of the compile call `await SimplicityHL('/*source*/', {/*args*/})` is
+the **P2TR (Pay-to-Taproot) address** which corresponds to the **CMR (Commitment Merkle root)**
+of the compiled program.
 
 ```ts
-// Continuing from the first example:
+// For convenience, a compiled `SimplicityHL` program stringifies to its P2TR address:
+String(program) === program.p2tr;
+```
 
+Compiling a program to its P2TR address and then transferring funds to that address,
+together correspond to what `TR:1.1` defines as **commitment time**.
+
+Continuing from the first example, this is the first point
+at which we need to **connect to the chain**:
+
+```ts
 // This will give us the RPC handle to sign and broadcast transactions:
 import Bitcoin from './path/to/fadroma/platform/Bitcoin/Bitcoin.ts';
 
-// For convenience, compiled `SimplicityHL` programs stringify
-// to the address which represents them on the chain, i.e. this holds:
-String(program) === program.p2tr;
+// For the localnet:
+const { rpc, rest } = await Bitcoin.ElementsRegtest();
 
-// Transferring funds to the P2TR is equivalent to deploying the program.
-// You can send the funds manually:
-
-// TODO example
-
-// Generate the transaction then broadcast it manually:
-
-// TODO example
-
-// Or commit to the contract in a single function call:
-
-// TODO example
+// For the testnet:
+const { rpc, rest } = await Bitcoin.LiquidTestnet();
 ```
+
+Transferring funds to the P2TR is equivalent to deploying the program.
+You can send the funds directly by any method:
+
+```ts
+const commitTxId = await rpc.sendtoaddress(program.p2tr, 1000);
+```
+
+Or you can use the `SimplicityHL` program object to generate a transaction
+to broadcast manually:
+
+```ts
+const commitTx = await program.commitTx({ tx, amount, fee, from: user });
+// TODO broadcast
+```
+
+Or you can commit to the contract in a single function call:
+
+```ts
+const commitTxId = await program.commit({ rpc, rest, tx, amount, fee, from: user });
+```
+
+You will need the commit TXID to perform the redemption step.
 
 ### Redemption
 
@@ -197,16 +216,25 @@ Constructing a signed witness, and then using it to authorize the transfer of fu
 from a program's address P2TR address, together correspond to what `TR:1.1` defines as
 **redemption time**.
 
+First, you need to **obtain the commit transaction data** from the commit TXID.
+Then, you will need to **construct and sign witness data**:
+
 ```ts
-// TODO example of signing sighash with witness data
+const sighash = program.redeemSighash({ tx: await rest.tx(commitTxId), amount, fee, to })
+// TODO construct and sign
+```
 
-// Again, you can generate the transaction then broadcast manually:
+You are now able to generate a redeem transaction to broadcast manually:
 
-// TODO example
+```ts
+const redeemTx = await program.redeemTx({ tx, amount, fee, witness, to: user });
+// TODO broadcast
+```
 
-// Or perform redemption in one go:
+Or you can perform the contract redemption in one go:
 
-// TODO example
+```ts
+const redeemTxId = await program.redeem({ rpc, rest, tx, amount, fee, witness, to: user });
 ```
 
 ### Utilities
@@ -226,7 +254,8 @@ using the `cmr_to_p2tr` function:
 This project applies techniques pioneered, described, or otherwise demonstrated
 by the following projects:
 
-* (**`SL:`**) [**simplicity-lang** (CC0)](https://docs.rs/simplicity-lang/0.7.0/src/simplicity/bit_machine/tracker.rs.html#137-140)
-* (**`SY:`**) [**simply** (MIT: Michael Zaikin, Starkware)](https://github.com/starkware-bitcoin/simply)
-* (**`TR:`**) [**Simplicity Technical Report, Draft** (MIT: Russell O'Connor, Blockstream)](https://raw.githubusercontent.com/ElementsProject/simplicity/pdf/Simplicity-TR.pdf)
+* (**`SL:`**) [**simplicity-lang** (CC0: Poelstra et al., Blockstream)](https://github.com/BlockstreamResearch/rust-simplicity/)
+* (**`SW:`**) [**simplicity-webide** (CC0: Lewe et al., Blockstream)](https://github.com/BlockstreamResearch/simplicity-webide)
+* (**`SY:`**) [**simply** (MIT: Zaikin et al., Starkware)](https://github.com/starkware-bitcoin/simply)
+* (**`TR:`**) [**Simplicity Technical Report, Draft** (MIT: O'Connor, Blockstream)](https://raw.githubusercontent.com/ElementsProject/simplicity/pdf/Simplicity-TR.pdf)
 * (**`SC:`**) [**simplicityhl-core** (MIT/Apache: Riabov et al., Blockstream)](https://github.com/BlockstreamResearch/simplicity-contracts/)
