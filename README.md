@@ -121,13 +121,13 @@ const SECRET = new Uint8Array(Array(32).fill(1));
 const PUBLIC = pubSchnorr(SECRET);
 
 // Compile the P2PK program by constructing a SimplicityHL program object:
-const P2PK = await SimplicityHL(SOURCE, {
+const program = await SimplicityHL(SOURCE, {
   // Provide public key as `param::PK` at compile time:
   PK: SimplicityHL.Arg.Pubkey(PUBLIC)
 });
 
 // The program descriptor, of type `SimplicityHL`, is WASM-backed but inspectable:
-console.log({ P2PK });
+console.log({ program });
 ```
 
 Here's some of what you will find in the `SimplicityHL` program descriptor contains:
@@ -172,10 +172,20 @@ import Bitcoin from './path/to/fadroma/platform/Bitcoin/Bitcoin.ts';
 
 // For convenience, compiled `SimplicityHL` programs stringify
 // to the address which represents them on the chain, i.e. this holds:
-String(P2PK) === P2PK.p2tr;
+String(program) === program.p2tr;
 
 // Transferring funds to the P2TR is equivalent to deploying the program.
-// (...but this example is not written yet!...)
+// You can send the funds manually:
+
+// TODO example
+
+// Generate the transaction then broadcast it manually:
+
+// TODO example
+
+// Or commit to the contract in a single function call:
+
+// TODO example
 ```
 
 ### Redemption
@@ -188,7 +198,15 @@ from a program's address P2TR address, together correspond to what `TR:1.1` defi
 **redemption time**.
 
 ```ts
-// (...but this example is not written yet, either!...)
+// TODO example of signing sighash with witness data
+
+// Again, you can generate the transaction then broadcast manually:
+
+// TODO example
+
+// Or perform redemption in one go:
+
+// TODO example
 ```
 
 ### Utilities
