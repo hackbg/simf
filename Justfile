@@ -77,16 +77,16 @@ wasm-sh:
 build:
   ${WASM_PACK} --debug --no-opt
   ${WASM_PKG}
-  @just inspect
+  @just wasm-inspect
 
 # Build in release mode (with optimizations)
 build-release:
   ${WASM_PACK} --target web --release
   ${WASM_PKG}
-  @just inspect
+  @just wasm-inspect
 
 # Show imports and exports of built module
-inspect:
+wasm-inspect:
   wasm2wat pkg/fadroma_simf_bg.wasm | grep import
   wasm2wat pkg/fadroma_simf_bg.wasm | grep export
 

@@ -7,7 +7,8 @@
 
 ## Introduction
 
-This package lets you do the following from JS/TS, by means of a WASM module:
+This is how to do the following from JavaScript and TypeScript,
+by means of an embedded WebAssembly module:
 
 * [**compile**](#compile-simplicityhl-to-p2tr) a Bitcoin smart contract from SimplicityHL source code
   to corresponding P2TR (Pay-to-Taproot) address.
@@ -16,12 +17,9 @@ This package lets you do the following from JS/TS, by means of a WASM module:
 * [**redeem**](#redemption) a deployed SimplicityHL smart contract by spending
   funds from its P2TR address under the authority of signed witness data.
 
-Among other things, this enables full-stack integration testing from a scripting language,
-atop an ephemeral Elements localnet in `elementsregtest` mode.
-
 ## Installation
 
-This module is currently unpackaged. It's most easily available as part of the following codebase:
+This repo is currently unpackaged. It's most easily available as part of the following codebase:
 
 ```sh
 # Clone the example project repository with all submodules:
@@ -57,17 +55,18 @@ use the `wasm*` commands in the Justfile to recompile the WASM binary,
 `pkg/fadroma_simf_bg.wasm`:
 
 ```sh
-just wasm        # rebuild wasm module
-just wasm-img    # rebuild wasm builder image
-just wasm-bacon  # run interactive rust compiler
-just wasm-sh     # enter build shell to run compiler manually
+just wasm         # rebuild wasm module
+just wasm-img     # rebuild wasm builder image
+just wasm-bacon   # run interactive rust compiler
+just wasm-sh      # enter build shell to run compiler manually
+just wasm-inspect # view wasm module's imports and exports
 ```
 
->☝️ As the Rust/C ABI boundary is slightly fragile, we provide a build image
->(`wasm` target in `Dockerfile`) with matching versions of build dependencies.
+>☝️ As the Rust/C ABI boundary is slightly fragile, we provide a **build container image
+>(`wasm` target in `Dockerfile`)** with matching versions of build dependencies.
 >
->Otherwise, compatibility issues may be encountered, as indicated by
->multiple missing "env" imports in the WASM's ABI.
+>Outside of it, you may encounter compatibility issues indicated by
+>multiple missing "env" imports in the WASM's ABI (`just wasm-inspect`).
 >
 >Ostensibly, the incompatibility is between the Clang version that was
 >used to build the Rust compiler being used, vs. the Clang version that
@@ -83,11 +82,13 @@ just test      # run tests
 just test-img  # rebuild test image
 ```
 
+The tests run on an automatically managed ephemeral Elements localnet in `elementsregtest` mode.
+
 >☝️ This repo is an excerpt from a larger monorepo, https://github.com/hackbg/fadroma,
 >which is currently unpackaged/unpublished.
 >
 >As some of the dependencies involved are only available via Git checkout,
->we've provided a test container image (`test` target in `Dockerfile`) with
+>we provide a **test container image (`test` target in `Dockerfile`)** with
 >the test context already provided.
 >
 >The image clones a pinned commit of Fadroma when built;
@@ -126,12 +127,15 @@ const P2PK = await SimplicityHL(SOURCE, {
 console.log({ P2PK });
 ```
 
-Here's some of what the `SimplicityHL` program descriptor contains:
+Here's some of what you will find in the `SimplicityHL` program descriptor contains:
 
 ```js
-Program {
+{
   // This is the compiled program's main address:
   p2tr: 'tex1p53f33nnjed42the73v3y2hgdgmhq98fh3d5r05u23fjwc0xyp9fqzn6ulg',
+
+  // Source is displayed as passed:
+  source: `fn main () { ... }`,
 
   // Template arguments are displayed as the program saw them:
   args: { PK: { type: 'u256', value: '0x1b84c5567b12...', } },
