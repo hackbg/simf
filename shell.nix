@@ -7,6 +7,8 @@ in sh "fadroma-simplicityhl" [
 
   pkgs.just
   pkgs.podman
+  pkgs.deno
+  pkgs.cloc
 
   # These tools are here for convenience. However,
   # depending on system internals, they are likely
@@ -15,8 +17,6 @@ in sh "fadroma-simplicityhl" [
   # to build in the provided container - see README.
   pkgs.bacon
   pkgs.binaryen
-  pkgs.cloc
-  pkgs.deno
   pkgs.lld
   pkgs.python3
   pkgs.rustup
