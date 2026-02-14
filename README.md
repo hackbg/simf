@@ -42,11 +42,13 @@ Standalone packages are in the works.
 
 ### Dependencies
 
-If you have Nix and Direnv, `direnv allow` the repo to automatically
-enter a Nix shell containing the main development dependencies:
+If you have **Nix** and **Direnv**, `direnv allow` this repo to automatically
+enter a Nix shell containing the main development dependencies, **Just**,
+**Podman**, and **Deno**.
 
-  * Just
-  * Docker (or Podman when env `DOCKER=podman`)
+>☝️ Outside of the Nix shell, the `Justfile` will instead default to using
+>your system `docker` (rootless). To control that, you can set the
+>environment variable `DOCKER` to `sudo docker`, `podman`, `buildah` or appropriate.
 
 ### WASM
 
@@ -88,6 +90,7 @@ The tests run on an automatically managed ephemeral Elements localnet in `elemen
 >which is currently unpackaged/unpublished.
 >
 >As some of the dependencies involved are only available via Git checkout,
+>and a version of Elements with Simplicity was only recently added to Nixpkgs Unstable,
 >we provide a **test container image (`test` target in `Dockerfile`)** with
 >the test context already provided.
 >
