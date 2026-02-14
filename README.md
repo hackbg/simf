@@ -7,18 +7,16 @@
 
 ## Introduction
 
-This package implements the following operations:
+This package lets you do the following from JS/TS, by means of a WASM module:
 
-* **compile** a Bitcoin smart contract from SimplicityHL source code
-  to a corresponding P2TR (Pay-to-Taproot) address.
-* **deploy** a SimplicityHL smart contract by generating a transaction
-  that transfers funds to its address.
-* **execute** a SimplicityHL smart contract by providing a signed witness
-  to the contract's affirmative evaluation for given values.
+* [**compile**](#compile-simplicityhl-to-p2tr) a Bitcoin smart contract from SimplicityHL source code
+  to corresponding P2TR (Pay-to-Taproot) address.
+* [**commit**](#commitment) to compiled SimplicityHL smart contract by transferring
+  funds to its P2TR address (a.k.a. deploy it; fund it).
+* [**redeem**](#redemption) a deployed SimplicityHL smart contract by spending
+  funds from its P2TR address under the authority of signed witness data.
 
-You get to invoke the above operations from JS/TS land, through an equally minimalist SDK.
-
-In turn, this enables full-stack integration testing from a scripting language,
+Among other things, this enables full-stack integration testing from a scripting language,
 atop an ephemeral Elements localnet in `elementsregtest` mode.
 
 ## Installation
@@ -139,15 +137,15 @@ Program {
   args: { PK: { type: 'u256', value: '0x1b84c5567b12...', } },
 
   // These correspond to what `TR:1.1` defines as **commitment time** and **redemption time**:
-  fund:  [AsyncFunction: fund],
-  spend: [AsyncFunction: spend],
+  commit: [AsyncFunction: commit],
+  redeem: [AsyncFunction: redeem],
 
   // These return the transaction, but don't broadcast it:
-  fundTx:  [Function: fundTx],
-  spendTx: [Function: spendTx],
+  commitTx: [Function: commitTx],
+  redeemTx: [Function: redeemTx],
 
-  // Witnesses need to sign this:
-  spendSighash: [Function: spendSighash],
+  // Witnesses need to sign this in order to redeem:
+  redeemSighash: [Function: redeemSighash],
 }
 ```
 
@@ -160,6 +158,9 @@ Compiling a program to P2TR address and then transferring funds to that address,
 together correspond to what `TR:1.1` defines as **commitment time**.
 
 ```ts
+// Continuing from the first example:
+
+// This will give us the RPC handle to sign and broadcast transactions:
 import Bitcoin from './path/to/fadroma/platform/Bitcoin/Bitcoin.ts';
 
 // For convenience, compiled `SimplicityHL` programs stringify

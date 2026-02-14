@@ -16,19 +16,19 @@ export class Program {
   /**
    * Output the hash which must be signed by the witness for the spend to be valid.
    */
-  spendSighash(options: object): string;
-  /**
-   * Generate a transaction to fund the program's P2TR address.
-   */
-  fundTx(options: object): object;
+  redeemSighash(options: object): string;
   /**
    * Use this in JS to get the properties of the compiled program.
    */
   toJSON(): object;
   /**
+   * Generate a transaction to fund the program's P2TR address.
+   */
+  commitTx(options: object): object;
+  /**
    * Generate a transaction to spend funds from the program's P2TR address.
    */
-  spendTx(options: object): object;
+  redeemTx(options: object): object;
   /**
    * Programs stringify to their P2TR addresses.
    */
@@ -43,7 +43,7 @@ export class Program {
 export function cmr_to_p2tr(cmr: any): string;
 
 /**
- * Compile a SimplicityHL program.
+ * Compile a SimplicityHL [Program].
  */
 export function compile(source: string, options: object): Program;
 
@@ -52,13 +52,13 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
   readonly memory: WebAssembly.Memory;
   readonly __wbg_program_free: (a: number, b: number) => void;
-  readonly cmr_to_p2tr: (a: any) => [number, number, number];
   readonly compile: (a: any, b: any) => [number, number, number];
-  readonly program_fundTx: (a: number, b: any) => [number, number, number];
-  readonly program_spendSighash: (a: number, b: any) => [number, number, number, number];
-  readonly program_spendTx: (a: number, b: any) => [number, number, number];
+  readonly program_commitTx: (a: number, b: any) => [number, number, number];
+  readonly program_redeemSighash: (a: number, b: any) => [number, number, number, number];
+  readonly program_redeemTx: (a: number, b: any) => [number, number, number];
   readonly program_toJSON: (a: number) => any;
   readonly program_toString: (a: number) => [number, number];
+  readonly cmr_to_p2tr: (a: any) => [number, number, number];
   readonly rust_0_6_malloc: (a: number) => number;
   readonly rust_0_6_free: (a: number) => void;
   readonly rust_0_6_calloc: (a: number, b: number) => number;

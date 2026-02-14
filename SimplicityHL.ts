@@ -21,27 +21,27 @@ export default SimplicityHL;
   *   
   *   // Deploy:
   *   const you = 'tex1000000000000000000000000000000000000000';
-  *   console.log(await program.fund({ rpc, rest, tx, amount: 1, fee: 1e-4, from: you }));
+  *   console.log(await program.commit({ rpc, rest, tx, amount: 1, fee: 1e-4, from: you }));
   *   
   *   // Invoke:
   *   const witness = { ...see tests for example witness data... };
-  *   console.log(await program.spend({ rpc, rest, tx, amount: 1, fee: 1e-4, to: you, witness }));
+  *   console.log(await program.redeem({ rpc, rest, tx, amount: 1, fee: 1e-4, to: you, witness }));
   *
   **/
 async function SimplicityHL (source: string, args?: SimplicityHL.Args): Promise<SimplicityHL> {
   const { compile } = await SimplicityHL.Wasm();
   const program = compile(source, { args }) as SimplicityHL;
   const fields = (program as unknown as  { toJSON (): unknown }).toJSON();
-  const result = Object.assign(program, fields, { fund, spend });
+  const result = Object.assign(program, fields, { commit, redeem });
   if (typeof result.args === 'string') result.args = JSON.parse(result.args as unknown as string);
   return result
-  async function fund (context: Pick<Btc, 'rpc'|'rest'> & SimplicityHL.Fund) {
+  async function commit (context: Pick<Btc, 'rpc'|'rest'> & SimplicityHL.Commit) {
     const { rpc, rest, ...options } = context;
-    return await rest.tx(await rpc.sendrawtransaction(program.fundTx(options).hex));
+    return await rest.tx(await rpc.sendrawtransaction(program.commitTx(options).hex));
   }
-  async function spend (context: Pick<Btc, 'rpc'|'rest'> & SimplicityHL.Spend) {
+  async function redeem (context: Pick<Btc, 'rpc'|'rest'> & SimplicityHL.Redeem) {
     const { rpc, rest, ...options } = context;
-    return await rest.tx(await rpc.sendrawtransaction(program.spendTx(options).hex));
+    return await rest.tx(await rpc.sendrawtransaction(program.redeemTx(options).hex));
   }
 }
 
@@ -56,15 +56,15 @@ interface SimplicityHL {
   /** The program's template arguments. */
   args?:       SimplicityHL.Args,
   /** Transfer funds to program. */
-  fund         (_: Pick<Btc, 'rpc'|'rest'> & SimplicityHL.Fund):  Promise<string>
+  commit         (_: Pick<Btc, 'rpc'|'rest'> & SimplicityHL.Commit):  Promise<string>
   /** Generate transaction to transfer funds to program. */
-  fundTx       (_: SimplicityHL.Fund): SimplicityHL.Transaction
+  commitTx       (_: SimplicityHL.Commit): SimplicityHL.Transaction
   /** Transfer funds from program. */
-  spend        (_: Pick<Btc, 'rpc'|'rest'> & SimplicityHL.Spend): Promise<string>
-  /** Generate transaction to spend funds from program. */
-  spendTx      (_: SimplicityHL.Spend): SimplicityHL.Transaction
-  /** Get sighash for spend to sign by witness. */
-  spendSighash (_: SimplicityHL.Spend): string;
+  redeem        (_: Pick<Btc, 'rpc'|'rest'> & SimplicityHL.Redeem): Promise<string>
+  /** Generate transaction to redeem funds from program. */
+  redeemTx      (_: SimplicityHL.Redeem): SimplicityHL.Transaction
+  /** Get sighash for redeem to sign by witness. */
+  redeemSighash (_: SimplicityHL.Redeem): string;
 }
 
 /** SimplicityHL integration. */
@@ -85,11 +85,11 @@ namespace SimplicityHL {
     toJSON:      Fn.Returns<object>,
   }
 
-  /** Parameters for fund transaction. */
-  export interface Fund { tx: unknown, amount: Num, fee: Num, from: string }
+  /** Parameters for commit transaction. */
+  export interface Commit { tx: unknown, amount: Num, fee: Num, from: string }
 
-  /** Parameters for spend transaction. */
-  export interface Spend { tx: unknown, amount: Num, fee: Num, to: string, witness?: Args }
+  /** Parameters for redeem transaction. */
+  export interface Redeem { tx: unknown, amount: Num, fee: Num, to: string, witness?: Args }
 
   /** Partially signed transaction from SimplicityHL WASM module. */
   export interface Transaction {

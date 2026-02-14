@@ -119,18 +119,18 @@ function Example (
     // Try spending from program:
     const fee     = 1e-4;
     const amount  = 1. - fee;
-    const sighash = prog.spendSighash({ tx, amount, fee, to: user });
+    const sighash = prog.redeemSighash({ tx, amount, fee, to: user });
     const witness = wits ? await wits(Base16.decode(sighash.toUpperCase())) : {};
     console.log({ prog, sighash, witness });
     const context = { rpc, rest, tx, amount, fee, witness, to: user };
     if (fail) {
       // TX is expected to fail
-      rejects(()=>prog.spend(context));
+      rejects(()=>prog.redeem(context));
       // Balance is expected to remain the same
       equal(await rpc.getreceivedbyaddress(user, 0), { bitcoin: balance });
     } else {
       // TX is expected to pass
-      await prog.spend(context);
+      await prog.redeem(context);
       // Balance is expected to increas
       equal(await rpc.getreceivedbyaddress(user, 0), { bitcoin: balance + amount });
     }

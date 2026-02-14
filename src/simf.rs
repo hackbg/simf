@@ -1,30 +1,6 @@
 use crate::*;
-/// Create SimplicityHL P2TR address from a [Cmr]
-/// (Commitment Merkle root), such as that of a
-/// compiled Simplicity program.
-#[wasm_bindgen] pub fn cmr_to_p2tr (cmr: JsValue) -> Maybe<JsString> {
-    console_error_panic_hook::set_once();
-    Ok(format!("{}", script_to_p2tr(Script::from(Input::bytes(cmr)?))?).into())
-}
-/// Generate P2TR (pay-to-taproot) [Address] from a [Script]'s [Cmr].
-pub fn script_to_p2tr (script: Script) -> Maybe<Address> {
-    Ok(taproot_to_p2tr(&script_to_taproot(script)?))
-}
-/// Generate P2TR (pay-to-taproot) [Address] from [TaprootSpendInfo].
-pub fn taproot_to_p2tr (tap: &TaprootSpendInfo, /* TODO: kind: Option<AddressParams>*/) -> Address {
-    let key  = tap.internal_key();
-    let root = tap.merkle_root();
-    Address::p2tr(secp256k1::SECP256K1, key, root, None, &AddressParams::LIQUID_TESTNET)
-}
-/// Generate [TaprootSpendInfo] for a given [Script].
-pub fn script_to_taproot (script: Script) -> Maybe<TaprootSpendInfo> {
-    let tap = TaprootBuilder::new();
-    let ver = expected!("use constant leaf version": LeafVersion::from_u8(0xbe))?;
-    let tap = expected!("taproot: add leaf": tap.add_leaf_with_ver(0, script, ver))?;
-    let tap = expected!("taproot: finalize": tap.finalize(&secp256k1::SECP256K1, unspendable()?))?;
-    Ok(tap)
-}
-/// Compile a SimplicityHL program.
+
+/// Compile a SimplicityHL [Program].
 #[wasm_bindgen] pub fn compile (source: JsString, options: Object) -> Maybe<Program> {
     console_error_panic_hook::set_once();
     let source = source.as_string().unwrap_or_default();
@@ -38,6 +14,7 @@ pub fn script_to_taproot (script: Script) -> Maybe<TaprootSpendInfo> {
     }
     Program::new(&source, args, debug, prune)
 }
+
 /// A valid compiled SimplicityHL program.
 #[wasm_bindgen(inspectable)] pub struct Program {
     pub(crate) args:     Arguments,
@@ -49,290 +26,116 @@ pub fn script_to_taproot (script: Script) -> Maybe<TaprootSpendInfo> {
     pub(crate) script:   Script,
     pub(crate) source:   Arc<str>,
 }
+
 #[wasm_bindgen] impl Program {
+
     /// Internal constructor.
     fn new (source: &str, args: Arguments, debug: bool, prune: bool) -> Maybe<Self> {
         let compiled = CompiledProgram::new(source, args.clone(), debug);
         let compiled = expected_display!("compile failed": compiled)?;
-        let commit   = compiled.commit();
-        let script   = Script::from(commit.cmr().to_byte_array().to_vec());
-        let source   = source.into();
-        let p2tr     = script_to_p2tr(script.clone())?;
+        let commit = compiled.commit();
+        let script = Script::from(commit.cmr().to_byte_array().to_vec());
+        let source = source.into();
+        let p2tr = script_to_p2tr(script.clone())?;
         Ok(Self { source, p2tr, debug, prune, args, compiled, commit, script, })
     }
-    /// Generate a transaction to spend funds from the program's P2TR address.
-    #[wasm_bindgen(js_name = spendTx)] pub fn spend_tx (&self, options: Object) -> Maybe<Object> {
-        let Program { compiled, script, p2tr, .. } = self;
-        debug!("=> Spend p2tr={p2tr:?}");
-        debug!("=> Spend script={script:?}");
-        let (tx, env) = spend_context(&options, &compiled, &script, &p2tr)?;
-        let witnessed = get!(options, "witness", Input::witness)?;
-        debug!("=> Spend witnessed={witnessed:?}");
-        let satisfied = expected_debug!("satisfy": compiled.satisfy(witnessed.clone()))?;
-        debug!("=> Spend satisfied={satisfied:?}");
-        let redeem = satisfied.redeem();
-        debug!("=> Spend redeem={redeem:?}");
-        let bounds = redeem.bounds();
-        debug!("=> Spend bounds={bounds:?}");
-        asserted!(bounds.cost.is_consensus_valid());
-        debug!("=> Spend cost={:?}", bounds.cost);
-        let mut tracker = DefaultTracker::new(satisfied.debug_symbols())
-            .with_log_level(TrackerLogLevel::Debug)
-            .with_debug_sink(       |a, b|debug!("=> SimplicityHL DEBUG {a} {b}"))
-            .with_jet_trace_sink(|a, b, c|debug!("=> SimplicityHL JET   {a} {b:?} {c:?}"))
-            .with_warning_sink(        |w|debug!("=> SimplicityHL WARN  {w}"));
-        let pruned = redeem.prune_with_tracker(&env, &mut tracker)?;
-        debug!("=> Spend pruned={pruned:?}");
-        let mut machine = BitMachine::for_program(&pruned)?;
-        let result = expected_debug!("execute": machine.exec_with_tracker(&pruned, &env, &mut tracker))?;
-        debug!("=> Spend result={result:?}");
-        let control = control_block(&self.script)?;
-        debug!("=> Spend control={control:?}");
-        //let pruned_cmr   = pruned.cmr().as_ref().to_vec();
-        //let (wits, prog) = pruned.to_vec_with_witness();
-        //let mut script_witness = vec![wits, prog, pruned_cmr, control.clone()];
-        let (program, witness) = redeem.encode_to_vec();
-        let mut script_witness = vec![witness, program, script.as_bytes().into(), control];
-        if let Some(padding_bytes) = bounds.cost.get_padding(&script_witness) {
-            // Annex has to be removed from the stack
-            // https://github.com/ElementsProject/elements/blob/9748c00c3344b815d75c4b5c251b341fb34fa80f/src/script/interpreter.cpp#L3275
-            script_witness.push(padding_bytes);
-        }
-        asserted!(bounds.cost.is_budget_valid(&script_witness));
-        let mut tx          = Arc::unwrap_or_clone(tx);
-        tx.input[0].witness = TxInWitness { script_witness: script_witness.clone(), ..Default::default() };
-        //Output::tx(&tx)
-        let mut pset        = PartiallySignedTransaction::from_tx(tx);
-        // Add padding to the script witness if budget is exceeded
-        pset.inputs_mut()[0].final_script_witness = Some(script_witness);
-        Output::tx(&expected!("extract final tx": pset.extract_tx())?)
-    }
-    /// Output the hash which must be signed by the witness for the spend to be valid.
-    #[wasm_bindgen(js_name = spendSighash)] pub fn spend_sighash (&self, options: Object) -> Maybe<String> {
-        let Program { compiled, script, p2tr, .. } = self;
-        let (_, env) = spend_context(&options, &compiled, &script, &p2tr)?;
-        Ok(format!("{}", env.c_tx_env().sighash_all()))
-    }
-    /// Generate a transaction to fund the program's P2TR address.
-    #[wasm_bindgen(js_name = fundTx)] pub fn fund_tx (&self, options: Object) -> Maybe<Object> {
-        asserted!(options.is_object());
-        let from = get!(options, "from", Input::address)?;
-        let (previous, _, asset_id, balance, amount, fee) = context(&options, &from)?;
-        let output = send(from.clone(), self.p2tr.clone(), asset_id, balance, amount, fee)?;
-        Output::tx(&transaction(output, vec![tx_input(previous)]))
-    }
+
     /// Use this in JS to get the properties of the compiled program.
-    #[wasm_bindgen(js_name = toJSON)] pub fn to_json (&self) -> Object {
+    #[wasm_bindgen(js_name = toJSON)]
+    pub fn to_json (&self) -> Object {
         Output::program(&self).unwrap_or_else(|e|JsValue::from(e).into())
     }
+
     /// Programs stringify to their P2TR addresses.
-    #[wasm_bindgen(js_name = toString)] pub fn to_string (&self) -> String {
+    #[wasm_bindgen(js_name = toString)]
+    pub fn to_string (&self) -> String {
         format!("{}", &self.p2tr)
     }
+
+    /// Generate a transaction to fund the program's P2TR address.
+    #[wasm_bindgen(js_name = commitTx)]
+    pub fn commit_tx (&self, options: Object) -> Maybe<Object> {
+        asserted!(options.is_object());
+        let from = get!(options, "from", Input::address)?;
+        let (prev, _, asset_id, balance, amount, fee) = Input::context(&options, &from)?;
+        let output = send(from.clone(), self.p2tr.clone(), asset_id, balance, amount, fee)?;
+        Output::tx(&transaction(output, vec![tx_input(prev)]))
+    }
+
+    /// Output the hash which must be signed by the witness for the spend to be valid.
+    #[wasm_bindgen(js_name = redeemSighash)]
+    pub fn redeem_sighash (&self, options: Object) -> Maybe<String> {
+        let Program { compiled, script, p2tr, .. } = self;
+        let (_tx, env) = redeem_context(&options, &compiled, &script, &p2tr)?;
+        Ok(format!("{}", env.c_tx_env().sighash_all()))
+    }
+
+    /// Generate a transaction to spend funds from the program's P2TR address.
+    #[wasm_bindgen(js_name = redeemTx)]
+    pub fn redeem_tx (&self, options: Object) -> Maybe<Object> {
+        let Program { compiled, script, p2tr, .. } = self;
+        debug!("=> REDEEM: p2tr={p2tr:?}\n   script={script:?}");
+        let (tx, env) = redeem_context(&options, &compiled, &script, &p2tr)?;
+        let witnessed = get!(options, "witness", Input::witness)?;
+        let pset = redeem_pset(tx, compiled, script, &witnessed, &env)?;
+        Output::tx(&expected!("extract final tx": pset.extract_tx())?)
+    }
 }
-fn context (options: &Object, from: &Address) -> Maybe<(OutPoint, TxOut, AssetId, u64, u64, u64)> {
-    asserted!(options.is_object());
-    let tx_in  = get!(options, "tx",     Input::tx)?;
-    let amount = get!(options, "amount", Input::sats)?;
-    let fee    = get!(options, "fee",    Input::sats)?;
-    let (previous_output, utxo) = Input::find_utxo(&tx_in, &from)?;
-    let asset_id = required!("utxo: asset cloaked": utxo.asset.explicit())?;
-    let balance  = required!("utxo: value cloaked": utxo.value.explicit())?;
-    Ok((previous_output, utxo, asset_id, balance, amount, fee))
-}
-fn spend_context (
-    options: &Object,
-    program: &CompiledProgram,
-    script:  &Script,
-    p2tr:    &Address
+
+fn redeem_context (
+    options: &Object, compiled: &CompiledProgram, script: &Script, p2tr: &Address
 ) -> Maybe<(Arc<Transaction>, Env)> {
-    let (previous, utxo, asset_id, balance, amount, fee) = context(options, p2tr)?;
-    let to      = get!(options, "to", Input::address)?;
-    let output  = send(p2tr.clone(), to, asset_id, balance, amount, fee)?;
-    let tx      = Arc::new(transaction(output, vec![tx_input(previous)]));
-    let cmr     = program.commit().cmr();
+    let (prev, utxo, asset_id, balance, amount, fee) = Input::context(options, p2tr)?;
+    let to = get!(options, "to", Input::address)?;
+    let output = send(p2tr.clone(), to, asset_id, balance, amount, fee)?;
+    let tx = Arc::new(transaction(output, vec![tx_input(prev)]));
+    let cmr = compiled.commit().cmr();
     let control = ControlBlock::from_slice(&control_block(&script)?)?;
-    let inputs  = vec![elements_utxo(&utxo)];
+    let inputs = vec![elements_utxo(&utxo)];
     Ok((tx.clone(), ElementsEnv::new(tx, inputs, 0, cmr, control, None, genesis()?)))
 }
-/// Generate transaction output for spending part or all of the funds at an address.
-pub(crate) fn send (
-    owner: Address, spender: Address, asset_id: AssetId, balance: u64, amount: u64, fee: u64,
-) -> Maybe<Vec<TxOut>> {
-    asserted!(amount + fee <= balance);
-    let spent = tx_output(asset_id, spender, amount);
-    Ok(if amount + fee == balance {
-        debug!("Will spend {amount} + {fee} = {balance}");
-        vec![TxOut::new_fee(fee, asset_id), spent]
-    } else {
-        let remain = balance - (amount + fee);
-        debug!("Will spend {amount} + {fee} = {balance} - {remain}");
-        let remain = tx_output(asset_id, owner, remain);
-        vec![TxOut::new_fee(fee, asset_id), spent, remain]
-    })
-}
-pub fn control_block (script: &Script) -> Maybe<Vec<u8>> {
-    let tap = script_to_taproot(script.clone())?;
-    let ver = expected!("leaf version mismatch": LeafVersion::from_u8(0xbe))?;
-    let block = required!("control block": tap.control_block(&(script.clone(), ver)))?;
-    let bytes = block.serialize();
-    // (control[0] & TAPROOT_LEAF_MASK) == TAPROOT_LEAF_TAPSIMPLICITY)
-    assert_eq!(bytes[0] & 0xfe, 0xbe);
-    Ok(bytes)
-        // FIXME? take control block from matching tap_scripts of input:
-        //for (cb, script_ver) in &input.tap_scripts {
-            //if script_ver.1 == leaf_version() && &script_ver.0[..] == cmr.as_ref() {
-                //control_block_leaf = Some((cb.clone(), script_ver.0.clone()));
-            //}
-        //}
-        // FIXME? why was this control block hardcoded in simply?
-        //let ctrl = expected!("env: control block fail": ControlBlock::from_slice(&[
-            //0xc0, 0xeb, 0x04, 0xb6, 0x8e, 0x9a, 0x26, 0xd1,
-            //0x16, 0x04, 0x6c, 0x76, 0xe8, 0xff, 0x47, 0x33,
-            //0x2f, 0xb7, 0x1d, 0xda, 0x90, 0xff, 0x4b, 0xef,
-            //0x53, 0x70, 0xf2, 0x52, 0x26, 0xd3, 0xbc, 0x09, 0xfc
-        //]))?;
-}
-fn transaction (output: Vec<TxOut>, input: Vec<TxIn>) -> Transaction {
-    Transaction { version: 2, lock_time: LockTime::ZERO, output, input }
-}
-fn tx_input (previous_output: OutPoint) -> TxIn {
-    TxIn {
-        previous_output,
-        is_pegin:        false,
-        script_sig:      Script::new(),
-        sequence:        Sequence::MAX,
-        asset_issuance:  AssetIssuance::null(),
-        witness:         TxInWitness {
-            amount_rangeproof:         None,
-            inflation_keys_rangeproof: None,
-            script_witness:            Vec::new(),
-            pegin_witness:             Vec::new(),
-        },
-    }
-}
-fn tx_output (asset_id: AssetId, to: Address, value: u64) -> TxOut {
-    TxOut {
-        script_pubkey: to.script_pubkey(),
-        value:   TxValue::Explicit(value),
-        asset:   Asset::Explicit(asset_id),
-        nonce:   Nonce::Null,
-        witness: TxOutWitness::default(),
-    }
-}
-fn elements_utxo (utxo: &TxOut) -> ElementsUtxo {
-    ElementsUtxo {
-        script_pubkey: utxo.script_pubkey.clone(),
-        asset:         utxo.asset,
-        value:         utxo.value
-    }
-}
-// FIXME: Magic constant (unspendable key)
-fn unspendable () -> Maybe<UntweakedPublicKey> {
-    expected!("unspendable key": UntweakedPublicKey::from_slice(
-        &expected!("unspendable key": hex::decode(
-            "50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0"
-        ))?
-    ))
-}
-fn genesis () -> Maybe<BlockHash> {
-    expected!("genesis hash": BlockHash::from_str(
-        "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"
-    ))
-    //BlockHash::from_byte_array([
-        //0x21, 0xca, 0xb1, 0xe5, 0xda, 0x47, 0x18, 0xea, 0x14,
-        //0x0d, 0x97, 0x16, 0x93, 0x17, 0x02, 0x42, 0x2f, 0x0e,
-        //0x6a, 0xd9, 0x15, 0xc8, 0xd9, 0xb5, 0x83, 0xca, 0xc2,
-        //0x70, 0x6b, 0x2a, 0x90, 0x00,
-    //])
-}
 
-        //let json = expected!("convert to json": JSON::parse(&serde_json::to_string(&tx)?))?;
-        //let input_utxos = pset
-            //.inputs()
-            //.iter()
-            //.enumerate()
-            //.map(|(n, input)| match input.witness_utxo {
-              //Some(ref utxo) => Ok(ElementsUtxo {
-                //script_pubkey: utxo.script_pubkey.clone(),
-                //asset: utxo.asset,
-                //value: utxo.value,
-              //}),
-              //None => Err(PsetError::MissingWitnessUtxo(n)),
-            //})
-            //.collect::<Result<Vec<_>, _>>()?;
-        //let tx = Arc::new(pset.extract_tx().map_err(PsetError::PsetExtract)?);
-        //let ins = pset.inputs().iter().enumerate().map(|(n, input)| match input.witness_utxo {
-            //Some(ref utxo) => Ok(ElementsUtxo {
-                //script_pubkey: utxo.script_pubkey.clone(),
-                //asset: utxo.asset,
-                //value: utxo.value,
-            //}),
-            //None => Err(PsetError::MissingWitnessUtxo(n)),
-        //}).collect::<Result<Vec<_>, _>>()?
-        //Ok(ElementsEnv::new(
-            //tx,
-            //ins,
-            //input,
-            //cmr,
-            //control_block.clone(),
-            //None,
-            //match genesis_hash {
-                //Some(s) => s.parse().map_err(PsetError::GenesisHashParse)?,
-                //None => elements::BlockHash::from_byte_array([
-                    //// copied out of simplicity-webide source
-                    //0xc1, 0xb1, 0x6a, 0xe2, 0x4f, 0x24, 0x23, 0xae,
-                    //0xa2, 0xea, 0x34, 0x55, 0x22, 0x92, 0x79, 0x3b,
-                    //0x5b, 0x5e, 0x82, 0x99, 0x9a, 0x1e, 0xed, 0x81,
-                    //0xd5, 0x6a, 0xee, 0x52, 0x8e, 0xda, 0x71, 0xa7,
-                //]),
-            //},
-        //))
-////fn set_build_bytes (
-    ////result:   &Object,
-    ////compiled: &CompiledProgram,
-    ////witness:  &Option<WitnessValues>,
-    ////prune:    bool
-////) -> Maybe<Vec<u8>> {
-    //////let program_bytes = vec![];
-    ////let program_bytes = if let Some(witness) = witness {
-        ////let satisfied = attempt!(if prune {
-            ////let env = dummy_env::dummy();
-            ////compiled.satisfy_with_env(witness.clone(), Some(&env))
-        ////} else {
-            ////compiled.satisfy(witness.clone())
-        ////});
-        ////let node = satisfied.redeem();
-        ////let (program_bytes, witness_bytes) = node.encode_to_vec();
-        ////let bounds = node.bounds();
-        ////set!(result, "witness", witness_bytes.clone());
-        ////set!(result, "bounds", {
-            ////let object = Object::new();
-            ////set!(object, "extra_cells",  bounds.extra_cells);
-            ////set!(object, "extra_frames", bounds.extra_frames);
-            ////set!(object, "cost",         format!("{}", bounds.cost));
-            ////object
-        ////});
-        ////let padding = node.bounds().cost.get_padding(&vec![
-            ////witness_bytes.clone(),
-            ////program_bytes.clone()
-        ////]);
-        ////set!(result, "padding", padding.unwrap_or_default().len());
-        ////program_bytes
-    ////} else {
-        ////compiled.commit().encode_to_vec()
-    ////};
-    ////set!(result, "program", program_bytes.clone());
-    ////Ok(program_bytes)
-////}
-
-////fn set_build_assembly (
-    ////result: &Object,
-    ////program_bytes: Vec<u8>
-////) -> Maybe<Forest<Elements>> {
-    ////let decoded = attempt!(CommitNode::decode(BitIter::from(program_bytes.into_iter())));
-    ////let assembly = Forest::<Elements>::from_program(decoded);
-    ////set!(result, "assembly", assembly.string_serialize());
-    ////Ok(assembly)
-////}
-
+fn redeem_pset (
+    tx:        Arc<Transaction>,
+    compiled:  &CompiledProgram,
+    script:    &Script,
+    witnessed: &WitnessValues,
+    env:       &Env,
+) -> Maybe<PartiallySignedTransaction> {
+    debug!("=> REDEEM: witnessed={witnessed:?}");
+    let satisfied = expected_debug!("satisfy": compiled.satisfy(witnessed.clone()))?;
+    debug!("=> REDEEM: satisfied={satisfied:?}");
+    let redeem = satisfied.redeem();
+    let bounds = redeem.bounds();
+    debug!("=> REDEEM: redeem={redeem:?}\n   bounds={bounds:?}\n   cost={:?}", bounds.cost);
+    asserted!(bounds.cost.is_consensus_valid());
+    let mut tracker = tracker(satisfied.debug_symbols());
+    let pruned = redeem.prune_with_tracker(&env, &mut tracker)?;
+    debug!("=> REDEEM: pruned={pruned:?}");
+    let mut machine = BitMachine::for_program(&pruned)?;
+    let result = expected_debug!("execute": machine.exec_with_tracker(&pruned, &env, &mut tracker))?;
+    debug!("=> REDEEM: result={result:?}");
+    if pruned.cmr() != redeem.cmr() {
+        warn!("=> REDEEM: CMR prune had effect: {:?} != {:?}", pruned.cmr(), redeem.cmr());
+    }
+    //let pruned_cmr   = pruned.cmr().as_ref().to_vec();
+    //let (wits, prog) = pruned.to_vec_with_witness();
+    //let mut script_witness = vec![wits, prog, pruned_cmr, control.clone()];
+    let (program, witness) = redeem.encode_to_vec();
+    let control = control_block(script)?;
+    debug!("=> REDEEM: control={control:?}");
+    let mut script_witness = vec![witness, program, script.as_bytes().into(), control];
+    if let Some(padding_bytes) = bounds.cost.get_padding(&script_witness) {
+        // Annex has to be removed from the stack
+        // https://github.com/ElementsProject/elements/blob/9748c00c3344b815d75c4b5c251b341fb34fa80f/src/script/interpreter.cpp#L3275
+        script_witness.push(padding_bytes);
+    }
+    asserted!(bounds.cost.is_budget_valid(&script_witness));
+    let mut tx = Arc::unwrap_or_clone(tx);
+    tx.input[0].witness = TxInWitness { script_witness: script_witness.clone(), ..Default::default() };
+    //Output::tx(&tx)
+    let mut pset = PartiallySignedTransaction::from_tx(tx);
+    // Add padding to the script witness if budget is exceeded
+    pset.inputs_mut()[0].final_script_witness = Some(script_witness);
+    Ok(pset)
+}

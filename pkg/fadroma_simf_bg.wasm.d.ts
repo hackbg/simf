@@ -2,13 +2,13 @@
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const __wbg_program_free: (a: number, b: number) => void;
-export const cmr_to_p2tr: (a: any) => [number, number, number];
 export const compile: (a: any, b: any) => [number, number, number];
-export const program_fundTx: (a: number, b: any) => [number, number, number];
-export const program_spendSighash: (a: number, b: any) => [number, number, number, number];
-export const program_spendTx: (a: number, b: any) => [number, number, number];
+export const program_commitTx: (a: number, b: any) => [number, number, number];
+export const program_redeemSighash: (a: number, b: any) => [number, number, number, number];
+export const program_redeemTx: (a: number, b: any) => [number, number, number];
 export const program_toJSON: (a: number) => any;
 export const program_toString: (a: number) => [number, number];
+export const cmr_to_p2tr: (a: any) => [number, number, number];
 export const rust_0_6_malloc: (a: number) => number;
 export const rust_0_6_free: (a: number) => void;
 export const rust_0_6_calloc: (a: number, b: number) => number;

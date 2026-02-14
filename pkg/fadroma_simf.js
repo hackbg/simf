@@ -255,13 +255,13 @@ export class Program {
      * @param {object} options
      * @returns {string}
      */
-    spendSighash(options) {
+    redeemSighash(options) {
         let deferred2_0;
         let deferred2_1;
         try {
             if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
             _assertNum(this.__wbg_ptr);
-            const ret = wasm.program_spendSighash(this.__wbg_ptr, options);
+            const ret = wasm.program_redeemSighash(this.__wbg_ptr, options);
             var ptr1 = ret[0];
             var len1 = ret[1];
             if (ret[3]) {
@@ -276,20 +276,6 @@ export class Program {
         }
     }
     /**
-     * Generate a transaction to fund the program's P2TR address.
-     * @param {object} options
-     * @returns {object}
-     */
-    fundTx(options) {
-        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
-        _assertNum(this.__wbg_ptr);
-        const ret = wasm.program_fundTx(this.__wbg_ptr, options);
-        if (ret[2]) {
-            throw takeFromExternrefTable0(ret[1]);
-        }
-        return takeFromExternrefTable0(ret[0]);
-    }
-    /**
      * Use this in JS to get the properties of the compiled program.
      * @returns {object}
      */
@@ -300,14 +286,28 @@ export class Program {
         return ret;
     }
     /**
+     * Generate a transaction to fund the program's P2TR address.
+     * @param {object} options
+     * @returns {object}
+     */
+    commitTx(options) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ret = wasm.program_commitTx(this.__wbg_ptr, options);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
      * Generate a transaction to spend funds from the program's P2TR address.
      * @param {object} options
      * @returns {object}
      */
-    spendTx(options) {
+    redeemTx(options) {
         if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
         _assertNum(this.__wbg_ptr);
-        const ret = wasm.program_spendTx(this.__wbg_ptr, options);
+        const ret = wasm.program_redeemTx(this.__wbg_ptr, options);
         if (ret[2]) {
             throw takeFromExternrefTable0(ret[1]);
         }
@@ -350,7 +350,7 @@ export function cmr_to_p2tr(cmr) {
 }
 
 /**
- * Compile a SimplicityHL program.
+ * Compile a SimplicityHL [Program].
  * @param {string} source
  * @param {object} options
  * @returns {Program}

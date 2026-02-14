@@ -84,6 +84,19 @@ impl Input {
         }
         Ok((required!(previous)?, required!(utxo)?))
     }
+
+    pub fn context (
+        options: &Object, from: &Address
+    ) -> Maybe<(OutPoint, TxOut, AssetId, u64, u64, u64)> {
+        asserted!(options.is_object());
+        let tx_in  = get!(options, "tx",     Input::tx)?;
+        let amount = get!(options, "amount", Input::sats)?;
+        let fee    = get!(options, "fee",    Input::sats)?;
+        let (previous_output, utxo) = Input::find_utxo(&tx_in, &from)?;
+        let asset_id = required!("utxo: asset cloaked": utxo.asset.explicit())?;
+        let balance  = required!("utxo: value cloaked": utxo.value.explicit())?;
+        Ok((previous_output, utxo, asset_id, balance, amount, fee))
+    }
 }
 
 pub struct Output;
