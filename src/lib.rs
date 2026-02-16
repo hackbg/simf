@@ -1,13 +1,9 @@
-// Crate-wide imports:
-
 extern crate console_error_panic_hook;
-pub(crate) use std::{str::FromStr, sync::Arc};
-pub(crate) use wasm_bindgen::prelude::*;
-#[allow(unused)] pub(crate) use js_sys::{
-    Array, BigInt, Boolean, Error, JSON, JsString, Number, Object, Reflect, Uint8Array,
-};
-#[allow(unused)] pub(crate) use bitcoin_hashes::Hash;
-#[allow(unused)] pub(crate) use simplicityhl::{
+use std::{str::FromStr, sync::Arc};
+use wasm_bindgen::prelude::*;
+#[allow(unused)] use js_sys::*;
+#[allow(unused)] use bitcoin_hashes::Hash;
+#[allow(unused)] use simplicityhl::{
     Arguments, CompiledProgram, SatisfiedProgram, Value, WitnessValues,
     debug::DebugSymbols,
     str::WitnessName,
@@ -33,215 +29,489 @@ pub(crate) use wasm_bindgen::prelude::*;
     }
 };
 
-// A generous helping of utility macros,
-// to make writing things less annoying.
-// When they are defined right here, they
-// are available in all subsequen modules.
+// A generous helping of utility macros, to make writing things less annoying.
+// When defined here, they are available in all subsequent modules.
 // Feel free to skip reading them for now.
 
 /// Log to JS console.
 #[allow(unused)] macro_rules! log(($msg:literal $(, $expr:expr)*) => {
-    web_sys::console::log_1(&format!($msg $(, $expr)*).into())});
+    web_sys::console::log_1(&format!($msg $(, $expr)*).into())
+});
+
 /// Log to JS console verbosely.
 #[allow(unused)] macro_rules! debug(($msg:literal $(, $expr:expr)*) => {
-    web_sys::console::debug_1(&format!($msg $(, $expr)*).into())});
+    web_sys::console::debug_1(&format!($msg $(, $expr)*).into())
+});
+
 /// Log a warning to the JS console.
 #[allow(unused)] macro_rules! warn(($msg:literal $(, $expr:expr)*) => {
-    web_sys::console::warn_1(&format!($msg $(, $expr)*).into())});
+    web_sys::console::warn_1(&format!($msg $(, $expr)*).into())
+});
+
 /// Construct throwable error
 macro_rules! err(($msg:literal $(, $expr:expr)*) => {
-    Err(JsError::new(&format!($msg $(, $expr)*))) });
+    Err(JsError::new(&format!($msg $(, $expr)*)))
+});
+
 /// Return [JsError] if expression evaluates to false:
 macro_rules! asserted(($expr:expr) => {
-    if !$expr { return err!("assertion failed: {}", stringify!($expr)) } });
+    if !$expr { return err!("assertion failed: {}", stringify!($expr)) }
+});
+
 /// Map `Err` to friendly [JsError].
 macro_rules! expected(($msg:literal: $expr:expr) => {
-    $expr.map_err(|_e|JsError::new(&format!("failed: {}", $msg))) });
+    $expr.map_err(|_e|JsError::new(&format!("failed: {}", $msg)))
+});
+
 /// Map `Err` to detailed friendly [JsError] if it implements [Debug].
 macro_rules! expected_debug(($msg:literal: $expr:expr) => {
-    $expr.map_err(|e|JsError::new(&format!("failed: {}: {:?}", $msg, e))) });
+    $expr.map_err(|e|JsError::new(&format!("failed: {}: {:?}", $msg, e)))
+});
+
 /// Map `Err` to detailed friendly [JsError] if it implements [Display].
 macro_rules! expected_display(($msg:literal: $expr:expr) => {
-    $expr.map_err(|e|JsError::new(&format!("failed: {}: {}", $msg, e))) });
+    $expr.map_err(|e|JsError::new(&format!("failed: {}: {}", $msg, e)))
+});
+
 /// Map `None` to friendly [JsError].
 macro_rules! required(
     ($expr:expr) => {
-        $expr.ok_or(JsError::new(&format!("{}: not found", stringify!($expr)))) };
+        $expr.ok_or(JsError::new(&format!("{}: not found", stringify!($expr))))
+    };
     ($msg:literal: $expr:expr) => {
-        $expr.ok_or(JsError::new(&format!("{}: {}", stringify!($expr), $msg))) });
+        $expr.ok_or(JsError::new(&format!("{}: {}", stringify!($expr), $msg)))
+    }
+);
+
 /// Get property of JS object
 macro_rules! get(
     ($obj:expr, $key:expr) => {
         Reflect::get(&$obj, &JsString::from($key).into())
-            .map_err(|_e|JsError::new(&format!("failed to get property {}", $key)))? };
+            .map_err(|_e|JsError::new(&format!("failed to get property {}", $key)))?
+    };
     ($obj:expr, $key:expr, $fn:expr) => {
         ($fn)(Reflect::get(&$obj, &JsString::from($key).into())
-            .map_err(|_e|JsError::new(&format!("failed to get property {}", $key)))?) };);
+            .map_err(|_e|JsError::new(&format!("failed to get property {}", $key)))?)
+    };
+);
+
 /// Set property of JS object
 macro_rules! set(($obj:expr, $key:expr, $value:expr) => {{
     let value = $value;
     Reflect::set(&$obj, &JsString::from($key).into(), &value.clone().into())
         .map_err(|_e|JsError::new(&format!("failed to set property: {}", $key)))?;
-    value }});
+    value
+}});
+
 /// Construct an object
 macro_rules! obj(($($id:literal = $val:expr),+ $(,)?) => {{
     let object = Object::new();
     $(set!(object, $id, JsValue::from($val));)+
-    object }});
+    object
+}});
 
-// Okay, with that out of the way... *deep breath*
-
-mod simf; pub use self::simf::*;
-mod simf_parse; pub use self::simf_parse::*;
+// Okay, with that out of the way:
 
 /// Concrete type of [ElementsEnv] used.
 pub type Env = simplicityhl::simplicity::jet::elements::ElementsEnv<Arc<Transaction>>;
 
 /// Standard result type
-pub(crate) type Maybe<T> = Result<T, JsError>;
+type Maybe<T> = Result<T, JsError>;
 
-/// Create SimplicityHL P2TR address from a [Cmr]
-/// (Commitment Merkle root), such as that of a
-/// compiled Simplicity program.
-#[wasm_bindgen] pub fn cmr_to_p2tr (cmr: JsValue, arg1: JsValue) -> Maybe<JsString> {
+/// Create [secp256k1] keypair from 32-byte secret.
+#[wasm_bindgen] pub fn keypair (secret: Uint8Array) -> Maybe<Keypair> {
     console_error_panic_hook::set_once();
-    let tap = script_to_taproot(Script::from(Input::bytes(cmr)?))?;
-    let chain = if JsString::is_type_of(&arg1) {
-        required!("chain selector must be string": arg1.as_string())?
-    } else {
-        return err!("invalid chain: {arg1:?}; try elementsregtest, liqudtestnet")
-    };
-    Ok(format!("{}", Address::p2tr(
-        SECP256K1,
-        tap.internal_key(),
-        tap.merkle_root(),
-        None,
-        match chain.as_str() {
+    let mut bytes = vec![0u8;32];
+    secret.copy_to(&mut bytes);
+    let keypair = secp256k1::Keypair::from_seckey_slice(secp256k1::SECP256K1, &bytes)?;
+    Ok(Keypair(keypair))
+}
+
+/// [secp256k1] keypair callable from JS.
+#[wasm_bindgen] pub struct Keypair (secp256k1::Keypair);
+
+#[wasm_bindgen] impl Keypair {
+
+    /// Perform Schnorr signing (for witnesses).
+    #[wasm_bindgen(js_name = "signSchnorr")]
+    pub fn sign_schnorr (&self, message: Uint8Array) -> Uint8Array {
+        let mut bytes = [0u8;32];
+        message.copy_to(&mut bytes);
+        let result = Uint8Array::new_with_length(64);
+        result.copy_from(&self.0.sign_schnorr(secp256k1::Message::from_digest(bytes)).serialize());
+        result
+    }
+
+    /// Tweaked public key for authenticating in programs.
+    #[wasm_bindgen(js_name = "xOnlyPublicKey")]
+    pub fn xonly_public_key (&self) -> Uint8Array {
+        let result = Uint8Array::new_with_length(32);
+        result.copy_from(&self.0.x_only_public_key().0.serialize());
+        result
+    }
+
+}
+
+/// Create compiler, providing chain constants.
+#[wasm_bindgen] pub fn compiler (options: JsValue) -> Maybe<Compiler> {
+    Ok(Compiler {
+        genesis: Arc::new(
+             BlockHash::from_str(&get!(options, "genesis", Input::string)?)?
+        ),
+        chain: get!(options, "chain", |input|if JsString::is_type_of(&input) {
+            Ok(input.as_string().unwrap())
+        } else {
+            err!("chain not string")
+        })?.into(),
+    })
+}
+
+#[wasm_bindgen] pub struct Compiler {
+    genesis: Arc<BlockHash>,
+    chain: Arc<str>,
+}
+
+#[wasm_bindgen] impl Compiler {
+
+    /// Compile a SimplicityHL [Program].
+    #[wasm_bindgen] pub fn compile (&self, source: JsString, options: Object) -> Maybe<Program> {
+        console_error_panic_hook::set_once();
+        let source = source.as_string().unwrap_or_default();
+        let mut args = Arguments::default();
+        if options.is_object() {
+            args = get!(options, "args", Input::args)?;
+        }
+        Ok(Program {
+            genesis: self.genesis.clone(),
+            chain: self.chain.clone(),
+            source: source.clone().into(),
+            args: args.clone(),
+            compiled: expected_display!("compile error": CompiledProgram::new(source, args, true))?,
+        })
+    }
+
+}
+
+/// A valid compiled SimplicityHL program.
+#[wasm_bindgen(inspectable)] pub struct Program {
+    pub(crate) chain:    Arc<str>,
+    pub(crate) genesis:  Arc<BlockHash>,
+    pub(crate) source:   Arc<str>,
+    pub(crate) args:     Arguments,
+    pub(crate) compiled: CompiledProgram,
+}
+
+#[wasm_bindgen] impl Program {
+
+    /// Partially-signed redeem transaction without witnesses.
+    /// For extremely manual signing.
+    #[wasm_bindgen(js_name = redeemPsbt)]
+    pub fn redeem_psbt (&self, options: &JsValue) -> Maybe<JsValue> {
+        let (psbt, _) = self.redeem_psbt_utxo(options)?;
+        match JSON::parse(serde_json::to_string(&psbt)?.as_str()) {
+            Ok(psbt) => Ok(psbt),
+            Err(_)   => err!("failed to deserialize interim psbt")
+        }
+    }
+
+    fn redeem_psbt_utxo (&self, options: &JsValue) -> Maybe<(PartiallySignedTransaction, TxOut)> {
+        let previous  = get!(options, "previous",  Input::tx)?;
+        let recipient = get!(options, "recipient", Input::address)?;
+        let amount    = get!(options, "amount",    Input::sats)?;
+        let fee       = get!(options, "fee",       Input::sats)?;
+        let (previous_output, utxo) = Input::find_utxo(&previous, &self.p2tr()?)?;
+        let asset = utxo.asset.explicit().unwrap();
+        let in_0  = tx_input(previous_output);
+        let out_0 = tx_output(asset, recipient, amount);
+        let out_1 = elements::TxOut::new_fee(fee, asset);
+        let psbt  = PartiallySignedTransaction::from_tx(transaction(vec![in_0], vec![out_0, out_1]));
+        Ok((psbt, utxo))
+    }
+
+    /// SIGHASH_ALL of redeem transaction.
+    /// Sign this to provide witness data.
+    #[wasm_bindgen(js_name = redeemSighash)]
+    pub fn redeem_sighash (&self, options: JsValue) -> Maybe<Uint8Array> {
+        let (psbt, utxo) = self.redeem_psbt_utxo(&options)?;
+        let env = self.env(&psbt, vec![ElementsUtxo::from(utxo)])?;
+        let all = env.c_tx_env().sighash_all().to_byte_array();
+        let u8a = Uint8Array::new_with_length(all.len() as u32);
+        u8a.copy_from(&all);
+        Ok(u8a)
+    }
+
+    /// Signed redeem transaction.
+    /// Broadcast it to redeem funds.
+    #[wasm_bindgen(js_name = redeemTx)]
+    pub fn redeem_tx (&self, options: JsValue) -> Maybe<Object> {
+        let wit = get!(options, "witness", Input::witness)?;
+        let (mut psbt, utxo) = self.redeem_psbt_utxo(&options)?;
+        let env = self.env(&psbt, vec![ElementsUtxo::from(utxo)])?;
+        let all = env.c_tx_env().sighash_all().to_byte_array();
+        let sat = expected!("satisfy": self.compiled.satisfy_with_env(wit, Some(&env)))?;
+        let (program_bytes, witness_bytes) = sat.redeem().encode_to_vec();
+        psbt.inputs_mut()[0].final_script_witness = Some(vec![
+            witness_bytes,
+            program_bytes,
+            self.cmr_vec(),
+            self.control_block()?.serialize(),
+        ]);
+        let tx = expected!("extract final tx:": psbt.extract_tx())?;
+        Output::tx(&tx)
+    }
+
+    fn env (&self, psbt: &PartiallySignedTransaction, ins: Vec<ElementsUtxo>) -> Maybe<Env> {
+        let tx = Arc::new(expected!("extract preliminary tx:": psbt.extract_tx())?);
+        Ok(Env::new(
+            tx.clone(), ins, 0, self.cmr(), self.control_block()?, None, self.genesis.as_ref().clone()
+        ))
+    }
+
+    fn cmr (&self) -> Cmr {
+        self.compiled.commit().cmr()
+    }
+
+    fn cmr_vec (&self) -> Vec<u8> {
+        self.compiled.commit().cmr().as_ref().to_vec()
+    }
+
+    fn script (&self) -> Script {
+        Script::from(self.cmr_vec())
+    }
+
+    fn control_block (&self) -> Maybe<ControlBlock> {
+        let block = required!("control block": self.tap()?.control_block(&(self.script(), leaf_version())))?;
+        // (control[0] & TAPROOT_LEAF_MASK) == TAPROOT_LEAF_TAPSIMPLICITY)
+        if block.serialize()[0] & 0xfe != 0xbe {
+            return err!("fatal: invalid control block")
+        }
+        Ok(block)
+    }
+
+    /// Generate [TaprootSpendInfo] for the program's [Commit] [Script].
+    fn tap (&self) -> Maybe<TaprootSpendInfo> {
+        let scr = self.script();
+        let tap = TaprootBuilder::new();
+        let tap = expected!("taproot: add leaf": tap.add_leaf_with_ver(0, scr, leaf_version()))?;
+        let tap = expected!("taproot: finalize": tap.finalize(&SECP256K1, unspendable()?))?;
+        Ok(tap)
+    }
+
+    fn p2tr (&self) -> Maybe<Address> {
+        let tap = self.tap()?;
+        let key = tap.internal_key();
+        let root = tap.merkle_root();
+        Ok(Address::p2tr(SECP256K1, key, root, None, match self.chain.as_ref() {
             "liquidtestnet"   => &AddressParams::LIQUID_TESTNET,
             "elementsregtest" => &AddressParams::ELEMENTS,
-            _ => return err!("invalid chain: {arg1:?}; try elementsregtest, liqudtestnet")
-        }
-    )).into())
+            _ => return err!("invalid chain: {}; try elementsregtest, liqudtestnet", &self.chain)
+        }))
+    }
+
+    /// Use this in JS to get the properties of the compiled program.
+    #[wasm_bindgen(js_name = toJSON)]
+    pub fn to_json (&self) -> Object {
+        Output::program(&self).unwrap_or_else(|e|JsValue::from(e).into())
+    }
 }
 
-/// Generate [TaprootSpendInfo] for a given [Script].
-pub(crate) fn script_to_taproot (script: Script) -> Maybe<TaprootSpendInfo> {
-    let tap = TaprootBuilder::new();
-    let tap = expected!("taproot: add leaf": tap.add_leaf_with_ver(0, script, leaf_version()))?;
-    let tap = expected!("taproot: finalize": tap.finalize(&SECP256K1, unspendable()?))?;
-    Ok(tap)
-}
-
-/// Magic constant: unspendable key.
+/// BIP-0341's NUMS key (magic unspendable key).
+///
 /// Taken from `SY:?`, whereas `SC:?` seems to use deployer's key.
-pub(crate) fn unspendable () -> Maybe<XOnlyPublicKey> {
+///
+fn unspendable () -> Maybe<XOnlyPublicKey> {
     expected!("constant failed to deserialize: unspendable key": XOnlyPublicKey::from_str(
         "50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0"
     ))
 }
 
 /// Construct [Transaction] from [TxOut]s and [TxIn]s.
-pub(crate) fn transaction (output: Vec<TxOut>, input: Vec<TxIn>) -> Transaction {
-    Transaction { version: 2, lock_time: LockTime::ZERO, output, input }
+fn transaction (input: Vec<TxIn>, output: Vec<TxOut>) -> Transaction {
+    Transaction { version: 2, lock_time: LockTime::ZERO, input, output }
 }
 
 /// Construct [TxIn] from [OutPoint].
-///
-/// TODO: Pass witness?
-pub(crate) fn tx_input (previous_output: OutPoint) -> TxIn {
+fn tx_input (previous_output: OutPoint) -> TxIn {
     TxIn {
         previous_output,
-        is_pegin:        false,
-        script_sig:      Script::new(),
-        sequence:        Sequence::MAX,
-        asset_issuance:  AssetIssuance::null(),
-        witness:         TxInWitness {
-            amount_rangeproof:         None,
-            inflation_keys_rangeproof: None,
-            script_witness:            Vec::new(),
-            pegin_witness:             Vec::new(),
-        },
+        is_pegin:       false,
+        script_sig:     Script::new(),
+        sequence:       Sequence::MAX,
+        asset_issuance: AssetIssuance::null(),
+        witness:        TxInWitness::empty(),
     }
 }
 
 /// Construct [TxOut].
-pub(crate) fn tx_output (asset_id: AssetId, to: Address, value: u64) -> TxOut {
+fn tx_output (asset_id: AssetId, recipient: Address, value: u64) -> TxOut {
     TxOut {
-        script_pubkey: to.script_pubkey(),
-        value:   TxValue::Explicit(value),
-        asset:   Asset::Explicit(asset_id),
-        nonce:   Nonce::Null,
+        script_pubkey: recipient.script_pubkey(),
+        value: TxValue::Explicit(value),
+        asset: Asset::Explicit(asset_id),
+        nonce: Nonce::Null,
         witness: TxOutWitness::default(),
     }
 }
 
-/// Construct [ElementsUtxo] from [TxOut].
-pub(crate) fn elements_utxo (utxo: &TxOut) -> ElementsUtxo {
-    ElementsUtxo {
-        script_pubkey: utxo.script_pubkey.clone(),
-        asset:         utxo.asset,
-        value:         utxo.value
+struct Input;
+
+impl Input {
+
+    fn flag (x: JsValue) -> bool {
+        x.is_truthy()
+    }
+
+    fn address (x: JsValue) -> Maybe<Address> {
+        let address = required!("addr: not string": x.as_string())?;
+        let address = expected!("addr: not parsed": Address::from_str(&address))?;
+        Ok(address)
+    }
+
+    fn tx (bytes: JsValue) -> Maybe<Transaction> {
+        let bytes = required!("tx bytes: not string": bytes.as_string())?;
+        let bytes = expected!("tx bytes: not base16": hex::decode(bytes.trim()))?;
+        let tx    = expected!("tx bytes: not parsed": deserialize_tx(&bytes))?;
+        Ok(tx)
+    }
+
+    fn string (input: JsValue) -> Maybe<String> {
+        if JsString::is_type_of(&input) {
+            required!("decode input": input.as_string())
+        } else {
+            err!("invalid chain: {input:?}; try elementsregtest, liqudtestnet")
+        }
+    }
+
+    fn chain (input: JsValue) -> Maybe<AddressParams> {
+        if JsString::is_type_of(&input) {
+            Self::chain_str(required!("decode input": input.as_string())?.as_str())
+        } else {
+            err!("invalid chain: {input:?}; try elementsregtest, liqudtestnet")
+        }
+    }
+    
+    fn chain_str (input: &str) -> Maybe<AddressParams> {
+        Ok(match input {
+            "liquidtestnet"   => AddressParams::LIQUID_TESTNET,
+            "elementsregtest" => AddressParams::ELEMENTS,
+            _ => return err!("invalid chain: {input}; try elementsregtest, liqudtestnet")
+        })
+    }
+
+    fn sats (input: JsValue) -> Maybe<u64> {
+        if BigInt::is_type_of(&input) {
+            expected!("bigint->u64": u64::try_from(input))
+        } else if Number::is_type_of(&input) {
+            warn!("number->u64: *10^8, use bigint to avoid precision issues");
+            expected!("number->u64": f64::try_from(input).map(|x|(x * 100000000.0) as u64))
+        } else if JsString::is_type_of(&input) {
+            warn!("string->u64: use bigint to avoid typing issues");
+            expected!("string->u64": u64::try_from(input))
+        } else {
+            return err!("received {:?}: need integer", input.js_typeof())
+        }
+    }
+
+    /// Accepts either [Uint8Array] or hex string.
+    fn bytes (input: JsValue) -> Maybe<Vec<u8>> {
+        if Uint8Array::instanceof(&input) { 
+            Ok(Uint8Array::unchecked_from_js(input).to_vec())
+        } else if JsString::is_type_of(&input) {
+            expected!("decode input": hex::decode(&required!(input.as_string())?))
+        } else {
+            return err!("need Uint8Array or hex string")
+        }
+    }
+
+    fn args (args: JsValue) -> Maybe<Arguments> {
+        if args.is_truthy() {
+            if !args.is_object() {
+                return err!("args: must be object")
+            }
+            if let Some(s) = JSON::stringify(&args)
+                .map_err(|e|JsError::new(&format!("failed to stringify args: {e:?}")))?
+                .as_string()
+            {
+                return Ok(serde_json::from_str(&s)?);
+            }
+        }
+        Ok(Arguments::default())
+    }
+
+    fn witness (wits: JsValue) -> Maybe<WitnessValues> {
+        if wits.is_truthy() {
+            if !wits.is_object() { return err!("wits: must be object") }
+            let wits = expected!("wits: failed to stringify": JSON::stringify(&wits))?;
+            if let Some(s) = wits.as_string() { return Ok(serde_json::from_str(&s)?); }
+        }
+        Ok(WitnessValues::default())
+    }
+
+    fn find_utxo (tx: &Transaction, address: &Address) -> Maybe<(OutPoint, TxOut)> {
+        let mut previous: Option<OutPoint> = Default::default();
+        let mut utxo:     Option<TxOut>    = Default::default();
+        for (index, output) in tx.output.iter().enumerate() {
+            //debug!("\nindex={index}\n  output={output:?}\n  value={:?}", &output.value);
+            //debug!("  {address:?} {:?} {:?}", &output.script_pubkey, &address.script_pubkey());
+            if output.script_pubkey == address.script_pubkey() {
+                //debug!("  using utxo #{index}");
+                previous = Some(OutPoint::new(tx.txid(), index as u32));
+                utxo     = Some(output.clone());
+                break;
+            }
+        }
+        Ok((required!(previous)?, required!(utxo)?))
+    }
+
+    fn context (
+        options: &Object, from: &Address
+    ) -> Maybe<(OutPoint, TxOut, AssetId, u64, u64, u64)> {
+        asserted!(options.is_object());
+        let tx_in  = get!(options, "tx",     Input::tx)?;
+        let amount = get!(options, "amount", Input::sats)?;
+        let fee    = get!(options, "fee",    Input::sats)?;
+        let (previous_output, utxo) = Input::find_utxo(&tx_in, &from)?;
+        let asset_id = required!("utxo: asset cloaked": utxo.asset.explicit())?;
+        let balance  = required!("utxo: value cloaked": utxo.value.explicit())?;
+        Ok((previous_output, utxo, asset_id, balance, amount, fee))
     }
 }
 
-/// Generate transaction output for spending part or all of the funds at an address.
-fn send (
-    owner: &Address, spender: &Address, asset_id: AssetId, balance: u64, amount: u64, fee: u64,
-) -> Maybe<Vec<TxOut>> {
-    asserted!(amount + fee <= balance);
-    let spent = tx_output(asset_id, spender.clone(), amount);
-    Ok(if amount + fee == balance {
-        debug!("send: spend {amount} + {fee} = {balance}");
-        vec![TxOut::new_fee(fee, asset_id), spent]
-    } else {
-        let remain = balance - (amount + fee);
-        debug!("send: {amount} + {fee} = {balance} - {remain}");
-        let remain = tx_output(asset_id, owner.clone(), remain);
-        vec![TxOut::new_fee(fee, asset_id), spent, remain]
-    })
-}
+struct Output;
 
-/// FIXME: Magic constant - genesis hash. Should vary by `-chain` mode.
-///
-/// Variants in `SY:?` and `SC:?` as well as `simplicity-webide` (TODO add reference).
-pub(crate) fn genesis () -> Maybe<BlockHash> {
-    expected!("genesis hash": BlockHash::from_str(
-        "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"
-    ))
-    //BlockHash::from_byte_array([
-        //0x21, 0xca, 0xb1, 0xe5, 0xda, 0x47, 0x18, 0xea, 0x14,
-        //0x0d, 0x97, 0x16, 0x93, 0x17, 0x02, 0x42, 0x2f, 0x0e,
-        //0x6a, 0xd9, 0x15, 0xc8, 0xd9, 0xb5, 0x83, 0xca, 0xc2,
-        //0x70, 0x6b, 0x2a, 0x90, 0x00,
-    //])
-    //None => elements::BlockHash::from_byte_array([
-        //// copied out of simplicity-webide source
-        //0xc1, 0xb1, 0x6a, 0xe2, 0x4f, 0x24, 0x23, 0xae,
-        //0xa2, 0xea, 0x34, 0x55, 0x22, 0x92, 0x79, 0x3b,
-        //0x5b, 0x5e, 0x82, 0x99, 0x9a, 0x1e, 0xed, 0x81,
-        //0xd5, 0x6a, 0xee, 0x52, 0x8e, 0xda, 0x71, 0xa7,
-    //]),
-}
+impl Output {
 
-pub(crate) fn control_block (script: &Script) -> Maybe<Vec<u8>> {
-    let tap = script_to_taproot(script.clone())?;
-    let ver = expected!("leaf version mismatch": LeafVersion::from_u8(0xbe))?;
-    let block = required!("control block": tap.control_block(&(script.clone(), ver)))?;
-    let bytes = block.serialize();
-    // (control[0] & TAPROOT_LEAF_MASK) == TAPROOT_LEAF_TAPSIMPLICITY)
-    assert_eq!(bytes[0] & 0xfe, 0xbe);
-    Ok(bytes)
-        // FIXME? take control block from matching tap_scripts of input:
-        //for (cb, script_ver) in &input.tap_scripts {
-            //if script_ver.1 == leaf_version() && &script_ver.0[..] == cmr.as_ref() {
-                //control_block_leaf = Some((cb.clone(), script_ver.0.clone()));
-            //}
-        //}
-        // FIXME? why was this control block hardcoded in simply?
-        //let ctrl = expected!("env: control block fail": ControlBlock::from_slice(&[
-            //0xc0, 0xeb, 0x04, 0xb6, 0x8e, 0x9a, 0x26, 0xd1,
-            //0x16, 0x04, 0x6c, 0x76, 0xe8, 0xff, 0x47, 0x33,
-            //0x2f, 0xb7, 0x1d, 0xda, 0x90, 0xff, 0x4b, 0xef,
-            //0x53, 0x70, 0xf2, 0x52, 0x26, 0xd3, 0xbc, 0x09, 0xfc
-        //]))?;
+    fn vex_to_hex (vex: &[Vec<u8>]) -> String {
+        hex::encode(&vex.iter().flat_map(|x|x.iter()).cloned().collect::<Vec<_>>())
+    }
+
+    fn opt_to_str <D: std::fmt::Display> (opt: &Option<D>) -> Option<String> {
+        opt.as_ref().map(|x|format!("{x}"))
+    }
+
+    fn program (program: &Program) -> Maybe<Object> {
+        Ok(obj! {
+            "chain"  = program.chain.to_string(),
+            "source" = program.source.to_string(),
+            "args"   = serde_json::to_string(&program.args)?,
+            "p2tr"   = program.p2tr()?.to_string(),
+        })
+    }
+
+    fn u8a (bytes: &[u8]) -> Uint8Array {
+        let u8a = Uint8Array::new_with_length(bytes.len() as u32);
+        u8a.copy_from(bytes);
+        u8a
+    }
+
+    /// Wrap transaction info returned to JS-land.
+    fn tx (tx: &Transaction) -> Maybe<Object> {
+        let bytes = tx.serialize();
+        Ok(obj! {
+            "bytes" = Output::u8a(&bytes),
+            "hex"   = hex::encode(&bytes),
+            "tx"    = JSON::parse(serde_json::to_string(&tx)?.as_str()).expect("parse own tx"),
+        })
+    }
+
 }

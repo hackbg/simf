@@ -1,11 +1,27 @@
 /* tslint:disable */
 /* eslint-disable */
 
+export class Compiler {
+  private constructor();
+  free(): void;
+  [Symbol.dispose](): void;
+  /**
+   * Compile a SimplicityHL [Program].
+   */
+  compile(source: string, options: object): Program;
+}
+
 export class Keypair {
   private constructor();
   free(): void;
   [Symbol.dispose](): void;
+  /**
+   * Perform Schnorr signing (for witnesses).
+   */
   signSchnorr(message: Uint8Array): Uint8Array;
+  /**
+   * Tweaked public key for authenticating in programs.
+   */
   xOnlyPublicKey(): Uint8Array;
 }
 
@@ -22,38 +38,30 @@ export class Program {
   free(): void;
   [Symbol.dispose](): void;
   /**
-   * Output the hash which must be signed by the witness for the spend to be valid.
+   * Partially-signed redeem transaction without witnesses.
+   * For extremely manual signing.
    */
-  redeemSighash(options: object): string;
+  redeemPsbt(options: any): any;
+  /**
+   * SIGHASH_ALL of redeem transaction.
+   * Sign this to provide witness data.
+   */
+  redeemSighash(options: any): Uint8Array;
   /**
    * Use this in JS to get the properties of the compiled program.
    */
   toJSON(): object;
   /**
-   * Generate a transaction to fund the program's P2TR address.
+   * Signed redeem transaction.
+   * Broadcast it to redeem funds.
    */
-  commitTx(options: object): object;
-  /**
-   * Generate a transaction to spend funds from the program's P2TR address.
-   */
-  redeemTx(options: object): object;
-  /**
-   * Programs stringify to their P2TR addresses.
-   */
-  toString(): string;
+  redeemTx(options: any): object;
 }
 
 /**
- * Create SimplicityHL P2TR address from a [Cmr]
- * (Commitment Merkle root), such as that of a
- * compiled Simplicity program.
+ * Create compiler, providing chain constants.
  */
-export function cmr_to_p2tr(cmr: any, arg1: any): string;
-
-/**
- * Compile a SimplicityHL [Program].
- */
-export function compile(source: string, options: object): Program;
+export function compiler(options: any): Compiler;
 
 /**
  * Create [secp256k1] keypair from 32-byte secret.
@@ -64,18 +72,18 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
   readonly memory: WebAssembly.Memory;
-  readonly cmr_to_p2tr: (a: any, b: any) => [number, number, number];
+  readonly __wbg_compiler_free: (a: number, b: number) => void;
   readonly __wbg_keypair_free: (a: number, b: number) => void;
   readonly __wbg_program_free: (a: number, b: number) => void;
-  readonly compile: (a: any, b: any) => [number, number, number];
+  readonly compiler: (a: any) => [number, number, number];
+  readonly compiler_compile: (a: number, b: any, c: any) => [number, number, number];
   readonly keypair: (a: any) => [number, number, number];
   readonly keypair_signSchnorr: (a: number, b: any) => any;
   readonly keypair_xOnlyPublicKey: (a: number) => any;
-  readonly program_commitTx: (a: number, b: any) => [number, number, number];
-  readonly program_redeemSighash: (a: number, b: any) => [number, number, number, number];
+  readonly program_redeemPsbt: (a: number, b: any) => [number, number, number];
+  readonly program_redeemSighash: (a: number, b: any) => [number, number, number];
   readonly program_redeemTx: (a: number, b: any) => [number, number, number];
   readonly program_toJSON: (a: number) => any;
-  readonly program_toString: (a: number) => [number, number];
   readonly rust_0_6_malloc: (a: number) => number;
   readonly rust_0_6_free: (a: number) => void;
   readonly rust_0_6_calloc: (a: number, b: number) => number;

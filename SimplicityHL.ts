@@ -8,6 +8,31 @@ import { Log } from '../../library/Log.ts';
 
 export default SimplicityHL;
 
+/** Compiled SimplicityHL program.
+  *
+  * This is a WASM object descriptor passed from the Rust side, augmented
+  * with properties and methods by the JS [SimplicityHL] constructor function. */
+interface SimplicityHL {
+  /** Code of program. */
+  source:      string
+  /** The program's template arguments. */
+  args?:        SimplicityHL.Args,
+  /** The program's P2TR address. */
+  p2tr:         string
+  /** Transfer funds to program. */
+  commit        (_: SimplicityHL.Commit & SimplicityHL.Connection):  Promise<string>
+  /** Generate transaction to transfer funds to program. */
+  commitTx      (_: SimplicityHL.Commit): SimplicityHL.Transaction
+  /** Transfer funds from program. */
+  redeem        (_: SimplicityHL.Redeem & SimplicityHL.Connection): Promise<string>
+  /** Generate transaction to redeem funds from program. */
+  redeemTx      (_: SimplicityHL.Redeem): SimplicityHL.Transaction
+  /** Get sighash for redeem to sign by witness. */
+  redeemSighash (_: SimplicityHL.Redeem): string;
+  /** Get PSET for redeem for fully manual signing. */
+  redeemPset    (_: SimplicityHL.Redeem): string;
+}
+
 /** For given SimplicityHL source, construct object representing its compiled form.
   *
   * Example:
@@ -30,14 +55,19 @@ export default SimplicityHL;
   *   console.log(await program.redeem({ rpc, rest, tx, amount: 1, fee: 1e-4, to: you, witness }));
   *
   **/
-async function SimplicityHL (source: string, { args, chain = 'elementsregtest' }: {
+async function SimplicityHL (source: string, {
+  args,
+  chain = 'elementsregtest',
+  genesis = '0000000000000000000000000000000000000000000000000000000000000000',
+}: {
   args?: SimplicityHL.Args,
-  chain?: 'elementsregtest'|'liquidtestnet'
+  chain?: 'elementsregtest'|'liquidtestnet',
+  genesis?: string
 } = {}): Promise<SimplicityHL> {
   // Compilation is synchronous, but we have to wait for the WASM the first time (FIXME?)
-  const { compile } = await SimplicityHL.Wasm();
-  // Compile the program, receiving a WASM descriptor.
-  const program = compile(source, { args, chain }) as SimplicityHL;
+  const { compiler } = await SimplicityHL.Wasm();
+  // Compile the program for the target chain, receiving a WASM descriptor.
+  const program = compiler({ chain, genesis }).compile(source, { args, chain }) as SimplicityHL;
   // Inspect WASM program descriptor, receiving the P2TR.
   const fields = (program as unknown as { toJSON (): unknown }).toJSON();
   // Deserialize args (FIXME? do this on the rust side)
@@ -82,6 +112,7 @@ function Redeem (program) {
     ...options
   }: SimplicityHL.Connection & SimplicityHL.Redeem) {
     const tx = program.redeemTx(options);
+    console.log({tx});
     for (let i = 0; i < tx.tx.input.length; i++)  debug(`REDEEM: INPUT ${i}:`,  tx.tx.input[i]);
     for (let i = 0; i < tx.tx.output.length; i++) debug(`REDEEM: OUTPUT ${i}:`, tx.tx.output[i]);
     debug('REDEEM: BYTES:    ', tx.hex);
@@ -95,31 +126,6 @@ function Redeem (program) {
     debug('REDEEM: SIGNATURE:', signed);
     return await rest.tx(await rpc.sendrawtransaction(tx.hex));
   }
-}
-
-/** Compiled SimplicityHL program.
-  *
-  * This is a WASM object descriptor passed from the Rust side, augmented
-  * with properties and methods by the JS [SimplicityHL] constructor function. */
-interface SimplicityHL {
-  /** Code of program. */
-  source:      string
-  /** CMR hash .*/
-  cmr:          string
-  /** The program's P2TR address. */
-  p2tr:         string
-  /** The program's template arguments. */
-  args?:        SimplicityHL.Args,
-  /** Transfer funds to program. */
-  commit        (_: SimplicityHL.Commit & SimplicityHL.Connection):  Promise<string>
-  /** Generate transaction to transfer funds to program. */
-  commitTx      (_: SimplicityHL.Commit): SimplicityHL.Transaction
-  /** Transfer funds from program. */
-  redeem        (_: SimplicityHL.Redeem & SimplicityHL.Connection): Promise<string>
-  /** Generate transaction to redeem funds from program. */
-  redeemTx      (_: SimplicityHL.Redeem): SimplicityHL.Transaction
-  /** Get sighash for redeem to sign by witness. */
-  redeemSighash (_: SimplicityHL.Redeem): string;
 }
 
 /** SimplicityHL integration. */

@@ -215,6 +215,10 @@ if (!('encodeInto' in cachedTextEncoder)) {
 
 let WASM_VECTOR_LEN = 0;
 
+const CompilerFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_compiler_free(ptr >>> 0, 1));
+
 const KeypairFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_keypair_free(ptr >>> 0, 1));
@@ -222,6 +226,45 @@ const KeypairFinalization = (typeof FinalizationRegistry === 'undefined')
 const ProgramFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_program_free(ptr >>> 0, 1));
+
+export class Compiler {
+    constructor() {
+        throw new Error('cannot invoke `new` directly');
+    }
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(Compiler.prototype);
+        obj.__wbg_ptr = ptr;
+        CompilerFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        CompilerFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_compiler_free(ptr, 0);
+    }
+    /**
+     * Compile a SimplicityHL [Program].
+     * @param {string} source
+     * @param {object} options
+     * @returns {Program}
+     */
+    compile(source, options) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ret = wasm.compiler_compile(this.__wbg_ptr, source, options);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return Program.__wrap(ret[0]);
+    }
+}
+if (Symbol.dispose) Compiler.prototype[Symbol.dispose] = Compiler.prototype.free;
 
 /**
  * [secp256k1] keypair callable from JS.
@@ -248,6 +291,7 @@ export class Keypair {
         wasm.__wbg_keypair_free(ptr, 0);
     }
     /**
+     * Perform Schnorr signing (for witnesses).
      * @param {Uint8Array} message
      * @returns {Uint8Array}
      */
@@ -258,6 +302,7 @@ export class Keypair {
         return ret;
     }
     /**
+     * Tweaked public key for authenticating in programs.
      * @returns {Uint8Array}
      */
     xOnlyPublicKey() {
@@ -301,29 +346,34 @@ export class Program {
         wasm.__wbg_program_free(ptr, 0);
     }
     /**
-     * Output the hash which must be signed by the witness for the spend to be valid.
-     * @param {object} options
-     * @returns {string}
+     * Partially-signed redeem transaction without witnesses.
+     * For extremely manual signing.
+     * @param {any} options
+     * @returns {any}
+     */
+    redeemPsbt(options) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ret = wasm.program_redeemPsbt(this.__wbg_ptr, options);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * SIGHASH_ALL of redeem transaction.
+     * Sign this to provide witness data.
+     * @param {any} options
+     * @returns {Uint8Array}
      */
     redeemSighash(options) {
-        let deferred2_0;
-        let deferred2_1;
-        try {
-            if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
-            _assertNum(this.__wbg_ptr);
-            const ret = wasm.program_redeemSighash(this.__wbg_ptr, options);
-            var ptr1 = ret[0];
-            var len1 = ret[1];
-            if (ret[3]) {
-                ptr1 = 0; len1 = 0;
-                throw takeFromExternrefTable0(ret[2]);
-            }
-            deferred2_0 = ptr1;
-            deferred2_1 = len1;
-            return getStringFromWasm0(ptr1, len1);
-        } finally {
-            wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ret = wasm.program_redeemSighash(this.__wbg_ptr, options);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
         }
+        return takeFromExternrefTable0(ret[0]);
     }
     /**
      * Use this in JS to get the properties of the compiled program.
@@ -336,22 +386,9 @@ export class Program {
         return ret;
     }
     /**
-     * Generate a transaction to fund the program's P2TR address.
-     * @param {object} options
-     * @returns {object}
-     */
-    commitTx(options) {
-        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
-        _assertNum(this.__wbg_ptr);
-        const ret = wasm.program_commitTx(this.__wbg_ptr, options);
-        if (ret[2]) {
-            throw takeFromExternrefTable0(ret[1]);
-        }
-        return takeFromExternrefTable0(ret[0]);
-    }
-    /**
-     * Generate a transaction to spend funds from the program's P2TR address.
-     * @param {object} options
+     * Signed redeem transaction.
+     * Broadcast it to redeem funds.
+     * @param {any} options
      * @returns {object}
      */
     redeemTx(options) {
@@ -363,55 +400,20 @@ export class Program {
         }
         return takeFromExternrefTable0(ret[0]);
     }
-    /**
-     * Programs stringify to their P2TR addresses.
-     * @returns {string}
-     */
-    toString() {
-        let deferred1_0;
-        let deferred1_1;
-        try {
-            if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
-            _assertNum(this.__wbg_ptr);
-            const ret = wasm.program_toString(this.__wbg_ptr);
-            deferred1_0 = ret[0];
-            deferred1_1 = ret[1];
-            return getStringFromWasm0(ret[0], ret[1]);
-        } finally {
-            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
-        }
-    }
 }
 if (Symbol.dispose) Program.prototype[Symbol.dispose] = Program.prototype.free;
 
 /**
- * Create SimplicityHL P2TR address from a [Cmr]
- * (Commitment Merkle root), such as that of a
- * compiled Simplicity program.
- * @param {any} cmr
- * @param {any} arg1
- * @returns {string}
+ * Create compiler, providing chain constants.
+ * @param {any} options
+ * @returns {Compiler}
  */
-export function cmr_to_p2tr(cmr, arg1) {
-    const ret = wasm.cmr_to_p2tr(cmr, arg1);
+export function compiler(options) {
+    const ret = wasm.compiler(options);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
-    return takeFromExternrefTable0(ret[0]);
-}
-
-/**
- * Compile a SimplicityHL [Program].
- * @param {string} source
- * @param {object} options
- * @returns {Program}
- */
-export function compile(source, options) {
-    const ret = wasm.compile(source, options);
-    if (ret[2]) {
-        throw takeFromExternrefTable0(ret[1]);
-    }
-    return Program.__wrap(ret[0]);
+    return Compiler.__wrap(ret[0]);
 }
 
 /**
@@ -560,9 +562,6 @@ function __wbg_get_imports() {
         const ret = arg0.crypto;
         return ret;
     }, arguments) };
-    imports.wbg.__wbg_debug_9d0c87ddda3dc485 = function() { return logError(function (arg0) {
-        console.debug(arg0);
-    }, arguments) };
     imports.wbg.__wbg_error_7534b8e9a36f1ab4 = function() { return logError(function (arg0, arg1) {
         let deferred0_0;
         let deferred0_1;
@@ -579,17 +578,6 @@ function __wbg_get_imports() {
     }, arguments) };
     imports.wbg.__wbg_get_af9dab7e9603ea93 = function() { return handleError(function (arg0, arg1) {
         const ret = Reflect.get(arg0, arg1);
-        return ret;
-    }, arguments) };
-    imports.wbg.__wbg_instanceof_Uint8Array_da54ccc9d3e09434 = function() { return logError(function (arg0) {
-        let result;
-        try {
-            result = arg0 instanceof Uint8Array;
-        } catch (_) {
-            result = false;
-        }
-        const ret = result;
-        _assertBoolean(ret);
         return ret;
     }, arguments) };
     imports.wbg.__wbg_length_22ac23eaec9d8053 = function() { return logError(function (arg0) {

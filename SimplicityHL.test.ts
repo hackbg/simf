@@ -24,9 +24,8 @@ const signSchnorr = (data: Uint8Array<ArrayBufferLike> = new Uint8Array()) => si
 export default Test(import.meta, 'SimplicityHL',
   // Check that the API entrypoints are present on the WASM module:
   Test('WASM', () => SimplicityHL.Wasm(),
-    Has('cmr_to_p2tr', Is('function')),
     Has('keypair', Is('function')),
-    Has('compile', Is('function'))),
+    Has('compiler', Is('function'))),
   // Test SimplicityHL on localnet.
   TestSimplicityHL(Bitcoin.ElementsRegtest),
   // TODO: Test SimplicityHL on remote testnet:
@@ -34,11 +33,11 @@ export default Test(import.meta, 'SimplicityHL',
 )
 /** Test SimplicityHL programs. */
 function TestSimplicityHL (Chain) {
+  let genesis = null;
+  const initial0 = { bitcoin: 0 };
+  const initial1 = { [Chain.REISSUE]: 1, bitcoin: Number(Chain.INITIAL_COINS / Bitcoin.DECIMAL) };
   // Compile and deploy example programs:
-  return Test(Chain.ID,
-
-    // Spawn localnet/connect to testnet.
-    () => Chain(),
+  return Test(Chain.ID, () => Chain(),
 
     // FIXME: These steps don't apply on remote testnet,
     // and can just be moved to localnet constructor options.
@@ -46,12 +45,15 @@ function TestSimplicityHL (Chain) {
     // Optionally, pipe the localnet's output to stderr:
     Bitcoin.Verbose(true),
     // Create test wallet, which is first seen as empty:
-    Bitcoin.CreateWallet('test-simf', testHasBalance({ bitcoin: 0 })),
+    Bitcoin.CreateWallet('test-simf', testHasBalance(initial0)),
     // But, after rescan, turns out to not be empty - it contains default balances:
-    Bitcoin.Rescan(testHasBalance({
-      [Chain.REISSUE]: 1,
-      bitcoin: Number(Chain.INITIAL_COINS / Bitcoin.DECIMAL)
-    })),
+    Bitcoin.Rescan(testHasBalance(initial1)),
+
+    async function fetchGenesisHash (context) {
+      genesis = await context.rpc.getblockhash(0);
+      console.log({genesis});
+      return context
+    },
 
     // FIXME: Some of the values won't apply on remote testnet:
     // And now we can test the included example programs:
@@ -87,11 +89,11 @@ function TestSimplicityHL (Chain) {
     Example(true,  "pay to pubkey hash", 2.7e-7,
       'e65e19e139a13583a0a7efb24be13c20d578f06f51b2a7fe7c7b9097072dbabe',
       'tex1p305439usq06f4maelan8txnxshktvayu9z5gnwu6zrrxm9vmlufqcshcuv',
-      `fn main () { assert!(jet::eq_256(sha2(witness::PUB), param::PKH));
-                    jet::bip_0340_verify((witness::PUB, jet::sig_all_hash()), witness::SIG) }
-       fn sha2 (string: u256) -> u256 { let hasher: Ctx8 = jet::sha_256_ctx_8_init();
+      `fn sha2 (string: u256) -> u256 { let hasher: Ctx8 = jet::sha_256_ctx_8_init();
                                         let hasher: Ctx8 = jet::sha_256_ctx_8_add_32(hasher, string);
-                                        jet::sha_256_ctx_8_finalize(hasher) }`,
+                                        jet::sha_256_ctx_8_finalize(hasher) }
+       fn main () { assert!(jet::eq_256(sha2(witness::PUB), param::PKH));
+                    jet::bip_0340_verify((witness::PUB, jet::sig_all_hash()), witness::SIG) }`,
       () => ({ PKH: SimplicityHL.Arg.Pubkey(KEYPAIR.xOnlyPublicKey()) /*FIXME hashit*/ }),
       (sighash: Uint8Array) => ({ SIG: SimplicityHL.Arg.Signature(KEYPAIR.signSchnorr(sighash))
                                 , PUB: SimplicityHL.Arg.Pubkey(KEYPAIR.xOnlyPublicKey()), })),
@@ -99,81 +101,82 @@ function TestSimplicityHL (Chain) {
     
     // Shutdown the localnet.
     (btc: Bitcoin) => btc.kill(9));
-}
-/** Define example program. */
-function Example (
-  /** Is the example expected to work? */
-  pass: boolean,
-  /** Human-readable identifier. */
-  name: string,
-  /** Expected deploy fee. */
-  cost: number,
-  /** Expected commitment Merkle root of program. */
-  cmr:  string,
-  /** Expected pay-to-taproot address of program. */
-  p2tr: string,
-  /** Source code of program. */
-  src:  string,
-  /** Function that provides parameter data. */
-  args?: Fn.Returns<Fn.Async<SimplicityHL.Args>>,
-  /** Function that provides witness data. */
-  wits?: Fn<[Uint8Array], Fn.Async<object>>,
-) {
-  const fail = !pass
-  const meta = { name, cost, cmr, p2tr, src, fail, wits };
-  return Fn.Name(`${name} (${p2tr||'unspecified P2TR'})`, testExample, meta)
-  async function testExample ({ rpc, rest }: Bitcoin) {
 
-    // Compile the program.
-    const prog = await SimplicityHL(src, { args: args ? await args() : undefined });
+  /** Define example program. */
+  function Example (
+    /** Is the example expected to work? */
+    pass: boolean,
+    /** Human-readable identifier. */
+    name: string,
+    /** Expected deploy fee. */
+    cost: number,
+    /** Expected commitment Merkle root of program. */
+    cmr:  string,
+    /** Expected pay-to-taproot address of program. */
+    p2tr: string,
+    /** Source code of program. */
+    src:  string,
+    /** Function that provides parameter data. */
+    args?: Fn.Returns<Fn.Async<SimplicityHL.Args>>,
+    /** Function that provides witness data. */
+    wits?: Fn<[Uint8Array], Fn.Async<object>>,
+  ) {
+    const fail = !pass
+    const meta = { name, cost, cmr, p2tr, src, fail, wits };
+    return Fn.Name(`${name} (${p2tr||'unspecified P2TR'})`, testExample, meta)
+    async function testExample ({ rpc, rest }: Bitcoin) {
 
-    // Check against pre-defined CMR/P2TR.
-    if (cmr)  { equal(prog.cmr, cmr); }
-    if (p2tr) { equal(prog.p2tr, p2tr); equal(prog.toString(), p2tr); }
+      // Compile the program.
+      const opts = { genesis, chain: Chain.ID, args: args ? await args() : undefined }
+      const prog = await SimplicityHL(src, opts);
 
-    // Fund program from deployer
-    const id = await rpc.sendtoaddress(p2tr, String(1));
-    const tx = testSplitTx(await rest.tx(id), p2tr, 1, cost).hex;
+      // Check against pre-defined CMR/P2TR.
+      if (p2tr) equal(prog.p2tr, p2tr);
 
-    // Create local spender wallet and import it to RPC:
-    const network = { bech32: 'ert', pubKeyHash: 0x6f, scriptHash: 0xc4, wif: 0xef, };
-    const { address: user } = p2wpkh(PUB_ECDSA, network);
-    await rpc.importaddress(user);
+      // Fund program from deployer
+      const id = await rpc.sendtoaddress(p2tr, String(1));
+      const previous = testSplitTx(await rest.tx(id), p2tr, 1, cost).hex;
 
-    // Note current balance:
-    await rpc.rescanblockchain();
-    const balance = ((await rpc.getreceivedbyaddress(user, 0)) as { bitcoin: number }).bitcoin;
+      // Create local spender wallet and import it to RPC:
+      const network = { bech32: 'ert', pubKeyHash: 0x6f, scriptHash: 0xc4, wif: 0xef, };
+      const recipient = p2wpkh(PUB_ECDSA, network).address;
+      await rpc.importaddress(recipient);
 
-    // Try spending from program:
-    const fee     = 1e-4;
-    const amount  = 1. - fee;
-    const sighash = prog.redeemSighash({ tx, amount, fee, to: user });
-    console.log({ sighash });
-    const witness = wits ? await wits(Base16.decode(sighash.toUpperCase())) : {};
-    console.log({ witness });
+      // Note current balance:
+      await rpc.rescanblockchain();
+      const balance = ((await rpc.getreceivedbyaddress(recipient, 0)) as { bitcoin: number }).bitcoin;
 
-    // Ultimate execution context.
-    // TODO: Simplify/separate context from args/?
-    const context = { rpc, rest, /*sign,*/ tx, amount, fee, witness, to: user };
+      // Try spending from program:
+      const fee = 1e-4;
+      const amount = 1. - fee;
+      const sighash = prog.redeemSighash({ previous, amount, fee, recipient });
+      console.log({ sighash });
+      const witness = wits ? await wits(sighash) : {};
+      console.log({ witness });
 
-    if (fail) {
+      // Ultimate execution context.
+      // TODO: Simplify/separate context from args/?
+      const context = { rpc, rest, /*sign,*/ previous, amount, fee, witness, recipient };
 
-      // TX is expected to fail
-      rejects(()=>prog.redeem(context));
+      if (fail) {
 
-      // Balance is expected to remain the same
-      equal(await rpc.getreceivedbyaddress(user, 0), { bitcoin: balance });
+        // TX is expected to fail
+        rejects(()=>prog.redeem(context));
 
-    } else {
+        // Balance is expected to remain the same
+        equal(await rpc.getreceivedbyaddress(recipient, 0), { bitcoin: balance });
 
-      // TX is expected to pass
-      await prog.redeem(context);
+      } else {
 
-      // Balance is expected to increase
-      equal(await rpc.getreceivedbyaddress(user, 0), { bitcoin: balance + amount });
+        // TX is expected to pass
+        await prog.redeem(context);
 
+        // Balance is expected to increase
+        equal(await rpc.getreceivedbyaddress(recipient, 0), { bitcoin: balance + amount });
+
+      }
+      return context;
     }
-    return context;
   }
 }
 /** Define test case for expected wallet balance. */

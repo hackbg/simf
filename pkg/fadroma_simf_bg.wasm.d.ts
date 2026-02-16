@@ -1,18 +1,18 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
-export const cmr_to_p2tr: (a: any, b: any) => [number, number, number];
+export const __wbg_compiler_free: (a: number, b: number) => void;
 export const __wbg_keypair_free: (a: number, b: number) => void;
 export const __wbg_program_free: (a: number, b: number) => void;
-export const compile: (a: any, b: any) => [number, number, number];
+export const compiler: (a: any) => [number, number, number];
+export const compiler_compile: (a: number, b: any, c: any) => [number, number, number];
 export const keypair: (a: any) => [number, number, number];
 export const keypair_signSchnorr: (a: number, b: any) => any;
 export const keypair_xOnlyPublicKey: (a: number) => any;
-export const program_commitTx: (a: number, b: any) => [number, number, number];
-export const program_redeemSighash: (a: number, b: any) => [number, number, number, number];
+export const program_redeemPsbt: (a: number, b: any) => [number, number, number];
+export const program_redeemSighash: (a: number, b: any) => [number, number, number];
 export const program_redeemTx: (a: number, b: any) => [number, number, number];
 export const program_toJSON: (a: number) => any;
-export const program_toString: (a: number) => [number, number];
 export const rust_0_6_malloc: (a: number) => number;
 export const rust_0_6_free: (a: number) => void;
 export const rust_0_6_calloc: (a: number, b: number) => number;
