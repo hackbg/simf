@@ -3,7 +3,6 @@
 extern crate console_error_panic_hook;
 pub(crate) use std::{str::FromStr, sync::Arc};
 pub(crate) use wasm_bindgen::prelude::*;
-#[allow(unused)] pub(crate) use web_sys::console::{log_1, debug_1, warn_1};
 #[allow(unused)] pub(crate) use js_sys::{
     Array, BigInt, Boolean, Error, JSON, JsString, Number, Object, Reflect, Uint8Array,
 };
@@ -14,7 +13,9 @@ pub(crate) use wasm_bindgen::prelude::*;
     str::WitnessName,
     tracker::{DefaultTracker, TrackerLogLevel},
     simplicity::{
-        Amr, BitIter, BitMachine, Cmr, CommitNode, Ihr, leaf_version,
+        Amr, BitIter, BitMachine, Cmr, CommitNode, Cost, Ihr, RedeemNode,
+        Value as SimValue,
+        leaf_version,
         human_encoding::Forest,
         jet::{Elements, elements::{ElementsEnv, ElementsUtxo}},
     },
@@ -37,13 +38,13 @@ pub(crate) use wasm_bindgen::prelude::*;
 
 /// Log to JS console.
 #[allow(unused)] macro_rules! log(($msg:literal $(, $expr:expr)*) => {
-    log_1(&format!($msg $(, $expr)*).into())});
+    web_sys::console::log_1(&format!($msg $(, $expr)*).into())});
 /// Log to JS console verbosely.
 #[allow(unused)] macro_rules! debug(($msg:literal $(, $expr:expr)*) => {
-    debug_1(&format!($msg $(, $expr)*).into())});
+    web_sys::console::debug_1(&format!($msg $(, $expr)*).into())});
 /// Log a warning to the JS console.
 #[allow(unused)] macro_rules! warn(($msg:literal $(, $expr:expr)*) => {
-    warn_1(&format!($msg $(, $expr)*).into())});
+    web_sys::console::warn_1(&format!($msg $(, $expr)*).into())});
 /// Construct throwable error
 macro_rules! err(($msg:literal $(, $expr:expr)*) => {
     Err(JsError::new(&format!($msg $(, $expr)*))) });
@@ -246,12 +247,4 @@ pub(crate) fn control_block (script: &Script) -> Maybe<Vec<u8>> {
             //0x2f, 0xb7, 0x1d, 0xda, 0x90, 0xff, 0x4b, 0xef,
             //0x53, 0x70, 0xf2, 0x52, 0x26, 0xd3, 0xbc, 0x09, 0xfc
         //]))?;
-}
-
-pub(crate) fn tracker (symbols: &DebugSymbols) -> DefaultTracker<'_> {
-    DefaultTracker::new(symbols)
-        .with_log_level(TrackerLogLevel::Debug)
-        .with_debug_sink(       |a, b|debug!("=> SimplicityHL DEBUG {a} {b}"))
-        .with_jet_trace_sink(|a, b, c|debug!("=> SimplicityHL JET   {a} {b:?} {c:?}"))
-        .with_warning_sink(        |w|debug!("=> SimplicityHL WARN  {w}"))
 }

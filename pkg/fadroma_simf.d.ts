@@ -51,6 +51,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
   readonly memory: WebAssembly.Memory;
+  readonly cmr_to_p2tr: (a: any) => [number, number, number];
   readonly __wbg_program_free: (a: number, b: number) => void;
   readonly compile: (a: any, b: any) => [number, number, number];
   readonly program_commitTx: (a: number, b: any) => [number, number, number];
@@ -58,7 +59,6 @@ export interface InitOutput {
   readonly program_redeemTx: (a: number, b: any) => [number, number, number];
   readonly program_toJSON: (a: number) => any;
   readonly program_toString: (a: number) => [number, number];
-  readonly cmr_to_p2tr: (a: any) => [number, number, number];
   readonly rust_0_6_malloc: (a: number) => number;
   readonly rust_0_6_free: (a: number) => void;
   readonly rust_0_6_calloc: (a: number, b: number) => number;

@@ -4,3 +4,6 @@
 [submodule "deps/simplicityhl"]
 	path = deps/simplicityhl
 	url = https://github.com/BlockstreamResearch/simplicityhl
+[submodule "deps/simplicity-contracts"]
+	path = deps/simplicity-contracts
+	url = https://github.com/BlockstreamResearch/simplicity-contracts/

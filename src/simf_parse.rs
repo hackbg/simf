@@ -133,9 +133,10 @@ impl Output {
     pub fn tx (tx: &Transaction) -> Maybe<Object> {
         let bytes = tx.serialize();
         Ok(obj! {
-            "tx"    = format!("{tx:?}"),
-            "hex"   = hex::encode(&bytes),
             "bytes" = Output::u8a(&bytes),
+            "hex"   = hex::encode(&bytes),
+            "tx"    = js_sys::JSON::parse(serde_json::to_string(&tx)?.as_str())
+                .expect("parse own tx"),
         })
     }
 }

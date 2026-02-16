@@ -19,7 +19,7 @@ by means of an embedded WebAssembly module:
 
 ## Installation
 
-This repo is currently unpackaged. It's most easily available as part of the following codebase:
+This repo is currently unpackaged. It's most easily runnable as part of the demo codebase:
 
 ```sh
 # Clone the example project repository with all submodules:
@@ -31,71 +31,24 @@ cd fadroma/platform/SimplicityHL
 # If you have Nix and Direnv, this will provide Just and Podman:
 direnv allow
 
-# Built the WASM:
-just wasm
+# Build the WASM and run the tests:
+just
 
-# Run the tests:
-just test
 ```
 
 Standalone packages are in the works.
 
+>☝️ Run `just -l` and see the [Hacking](#hacking) section for DX details.
+
 ### Dependencies
 
 If you have **Nix** and **Direnv**, `direnv allow` this repo to automatically
-enter a Nix shell containing the main development dependencies, **Just**,
-**Podman**, and **Deno**.
+enter a Nix shell containing up-to-date versions of the main development dependencies,
+**Just**, **Podman**, and **Deno**.
 
 >☝️ Outside of the Nix shell, the `Justfile` will instead default to using
 >your system `docker` (rootless). To control that, you can set the
 >environment variable `DOCKER` to `sudo docker`, `podman`, `buildah` or appropriate.
-
-### WASM
-
-On first checkout, as well as after making changes to the Rust source code,
-use the `wasm*` commands in the Justfile to recompile the WASM binary,
-`pkg/fadroma_simf_bg.wasm`:
-
-```sh
-just wasm         # rebuild wasm module
-just wasm-img     # rebuild wasm builder image
-just wasm-bacon   # run interactive rust compiler
-just wasm-sh      # enter build shell to run compiler manually
-just wasm-inspect # view wasm module's imports and exports
-```
-
->☝️ As the Rust/C ABI boundary is slightly fragile, we provide a **build container image
->(`wasm` target in `Dockerfile`)** with matching versions of build dependencies.
->
->Outside of it, you may encounter compatibility issues indicated by
->multiple missing "env" imports in the WASM's ABI (`just wasm-inspect`).
->
->Ostensibly, the incompatibility is between the Clang version that was
->used to build the Rust compiler being used, vs. the Clang version that
->is currently available on the system (which compiles the jets from C).
-
-### Run tests
-
-Having checked out this repo, and with `pkg/fadroma_simf_bg.wasm` in place,
-use the `test*` commands in the Justfile to run the tests:
-
-```sh
-just test      # run tests
-just test-img  # rebuild test image
-```
-
-The tests run on an automatically managed ephemeral Elements localnet in `elementsregtest` mode.
-
->☝️ This repo is an excerpt from a larger monorepo, https://github.com/hackbg/fadroma,
->which is currently unpackaged/unpublished.
->
->As some of the dependencies involved are only available via Git checkout,
->and a version of Elements with Simplicity was only recently added to Nixpkgs Unstable,
->we provide a **test container image (`test` target in `Dockerfile`)** with
->the test context already provided.
->
->The image clones a pinned commit of Fadroma when built;
->this repo's tests then run in a subdirectory of that.
 
 ## Usage
 
@@ -249,7 +202,67 @@ using the `cmr_to_p2tr` function:
 // This example is not written yet!
 ```
 
-## Attribution
+## Hacking
+
+### Build the WASM
+
+On first checkout, as well as after making changes to the Rust source code,
+use the `build*` commands in the Justfile to recompile the WASM binary,
+`pkg/fadroma_simf_bg.wasm`:
+
+```sh
+# Normal build workflow:
+just               # build and integration test
+just bacon         # run (in build container) tui that rechecks on file change
+just build-debug   # compile pkg/fadroma_simf_bg.wasm in container (debug mode)
+just build-release # compile pkg/fadroma_simf_bg.wasm in container (release mode mode)
+
+# Utilities:
+just build-inspect # view imports and exports defined in pkg/fadroma_simf_bg.wasm
+just build-img     # rebuild container image (normally happens automatically)
+just build-sh      # enter build container (to run tools manually)
+
+# Danger zone:
+just build-wasm-debug   # compile pkg/fadroma_simf_bg.wasm with your local toolchain (debug mode)
+just build-wasm-release # compile pkg/fadroma_simf_bg.wasm with your local toolchain (release mode)
+```
+
+#### ABI
+
+As the Rust/C ABI boundary is slightly fragile, we provide a **build container image
+(`wasm` target in `Dockerfile`)** with matching versions of build dependencies.
+
+Outside of it, you may encounter compatibility issues indicated by
+multiple missing "env" imports in the WASM's ABI (`just build-inspect`).
+
+>☝️ Ostensibly, the incompatibility is between the Clang version that was
+>used to build the Rust compiler being used, vs. the Clang version that
+>is currently available on the system (which compiles the jets from C).
+
+### Run the tests
+
+Having checked out this repo, and with `pkg/fadroma_simf_bg.wasm` in place,
+use the `test*` commands in the Justfile to run the tests:
+
+```sh
+just test      # run tests
+just test-img  # rebuild test image
+```
+
+The tests run on an automatically managed ephemeral Elements localnet in `elementsregtest` mode.
+
+>☝️ This repo is an excerpt from a larger monorepo, https://github.com/hackbg/fadroma,
+>which is currently unpackaged/unpublished.
+>
+>As some of the dependencies involved are only available via Git checkout,
+>and a version of Elements with Simplicity was only recently added to Nixpkgs Unstable,
+>we provide a **test container image (`test` target in `Dockerfile`)** with
+>the test context already provided.
+>
+>The image clones a pinned commit of Fadroma when built;
+>this repo's tests then run in a subdirectory of that.
+
+## Acknowledgments, References, Attribution
 
 This project applies techniques pioneered, described, or otherwise demonstrated
 by the following projects:

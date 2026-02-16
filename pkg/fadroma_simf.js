@@ -508,6 +508,9 @@ function __wbg_get_imports() {
         _assertNum(ret);
         return ret;
     }, arguments) };
+    imports.wbg.__wbg_log_1d990106d99dacb7 = function() { return logError(function (arg0) {
+        console.log(arg0);
+    }, arguments) };
     imports.wbg.__wbg_new_1ba21ce319a06297 = function() { return logError(function () {
         const ret = new Object();
         return ret;
@@ -518,6 +521,10 @@ function __wbg_get_imports() {
     }, arguments) };
     imports.wbg.__wbg_new_with_length_aa5eaf41d35235e5 = function() { return logError(function (arg0) {
         const ret = new Uint8Array(arg0 >>> 0);
+        return ret;
+    }, arguments) };
+    imports.wbg.__wbg_parse_a09a54cf72639456 = function() { return handleError(function (arg0, arg1) {
+        const ret = JSON.parse(getStringFromWasm0(arg0, arg1));
         return ret;
     }, arguments) };
     imports.wbg.__wbg_prototypesetcall_dfe9b766cdc1f1fd = function() { return logError(function (arg0, arg1, arg2) {

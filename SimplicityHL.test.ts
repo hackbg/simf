@@ -27,7 +27,7 @@ export default Test(import.meta, 'SimplicityHL',
     // Start by spawning a localnet:
     () => Btc.ElementsRegtest(),
     // Optionally, pipe the localnet's output to stderr:
-    Btc.Verbose(false),
+    Btc.Verbose(true),
     // Create test wallet, which is first seen as empty:
     Btc.CreateWallet('test-simf', testHasBalance({ bitcoin: 0 })),
     // But, after rescan, turns out to not be empty - it contains default balances:
@@ -57,6 +57,7 @@ export default Test(import.meta, 'SimplicityHL',
                     let ab: u8  = <(u4, u4)>::into((0b1011, 0b1101)); assert!(jet::eq_8(ab, 0b10111101)); }`),
     // - witness signing
     Example(true,  "pay to pubkey",      2.7e-7,
+      //'be4ba2ae0c9559c7ec8f054f9b6336648f51658fd41a37db9ebc5b22f3b62713',
       '0b771386a2ee6f0cfb296b0656a98431b77be650ea1eb0f7beb05894fe9bba87',
       'tex1p53f33nnjed42the73v3y2hgdgmhq98fh3d5r05u23fjwc0xyp9fqzn6ulg',
       `fn main () { jet::bip_0340_verify((param::PK, jet::sig_all_hash()), witness::SIG) }`,
