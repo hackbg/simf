@@ -189,17 +189,17 @@ pub(crate) fn elements_utxo (utxo: &TxOut) -> ElementsUtxo {
 
 /// Generate transaction output for spending part or all of the funds at an address.
 fn send (
-    owner: Address, spender: Address, asset_id: AssetId, balance: u64, amount: u64, fee: u64,
+    owner: &Address, spender: &Address, asset_id: AssetId, balance: u64, amount: u64, fee: u64,
 ) -> Maybe<Vec<TxOut>> {
     asserted!(amount + fee <= balance);
-    let spent = tx_output(asset_id, spender, amount);
+    let spent = tx_output(asset_id, spender.clone(), amount);
     Ok(if amount + fee == balance {
         debug!("send: spend {amount} + {fee} = {balance}");
         vec![TxOut::new_fee(fee, asset_id), spent]
     } else {
         let remain = balance - (amount + fee);
         debug!("send: {amount} + {fee} = {balance} - {remain}");
-        let remain = tx_output(asset_id, owner, remain);
+        let remain = tx_output(asset_id, owner.clone(), remain);
         vec![TxOut::new_fee(fee, asset_id), spent, remain]
     })
 }

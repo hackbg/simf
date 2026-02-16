@@ -12,10 +12,12 @@ const { is: Is, has: Has } = Test;
 const PRIVATE     = new Uint8Array(Array(32).fill(1));
 /** Public key for ECDSA (transactions). */
 const PUB_ECDSA   = pubECDSA(PRIVATE);
+/** Sign (ECDSA) transaction with test private key. */
+const sign        = (data: Uint8Array<ArrayBufferLike> = new Uint8Array()) => signSchnorr(data, PRIVATE);
 /** Public key for Schnorr (witnesses). */
 const PUB_SCHNORR = pubSchnorr(PRIVATE);
-/** Sign with test private key. */
-const sign = (data: Uint8Array<ArrayBufferLike> = new Uint8Array()) => signSchnorr(data, PRIVATE);
+/** Sign (Schnorr) witness data with test private key. */
+const signWitness = (data: Uint8Array<ArrayBufferLike> = new Uint8Array()) => signSchnorr(data, PRIVATE);
 /** Test the SimplicityHL support in Fadroma. */
 export default Test(import.meta, 'SimplicityHL',
   // Check that the API entrypoints are present on the WASM module:
@@ -62,7 +64,7 @@ export default Test(import.meta, 'SimplicityHL',
       'tex1p53f33nnjed42the73v3y2hgdgmhq98fh3d5r05u23fjwc0xyp9fqzn6ulg',
       `fn main () { jet::bip_0340_verify((param::PK, jet::sig_all_hash()), witness::SIG) }`,
       () => ({ PK: SimplicityHL.Arg.Pubkey(PUB_SCHNORR) }),
-      (sighash: Uint8Array) => ({ SIG: SimplicityHL.Arg.Signature(sign(sighash)), })),
+      (sighash: Uint8Array) => ({ SIG: SimplicityHL.Arg.Signature(signWitness(sighash)), })),
     // - more complex signing
     Example(true,  "pay to pubkey hash", 2.7e-7,
       'e65e19e139a13583a0a7efb24be13c20d578f06f51b2a7fe7c7b9097072dbabe',
@@ -73,7 +75,7 @@ export default Test(import.meta, 'SimplicityHL',
                                         let hasher: Ctx8 = jet::sha_256_ctx_8_add_32(hasher, string);
                                         jet::sha_256_ctx_8_finalize(hasher) }`,
       () => ({ PKH: SimplicityHL.Arg.Pubkey(PUB_SCHNORR) }),
-      (sighash: Uint8Array) => ({ SIG: SimplicityHL.Arg.Signature(sign(sighash))
+      (sighash: Uint8Array) => ({ SIG: SimplicityHL.Arg.Signature(signWitness(sighash))
                                 , PUB: SimplicityHL.Arg.Pubkey(PUB_ECDSA), })),
     // - multisig: TODO
     
@@ -94,7 +96,7 @@ function Example (
   /** Source code of program. */
   src:  string,
   /** Function that provides parameter data. */
-  args?: Fn.Returns<Fn.Async<object>>,
+  args?: Fn.Returns<Fn.Async<SimplicityHL.Args>>,
   /** Function that provides witness data. */
   wits?: Fn<[Uint8Array], Fn.Async<object>>,
 ) {
@@ -102,38 +104,51 @@ function Example (
   const meta = { name, cost, cmr, p2tr, src, fail, wits };
   return Fn.Name(`${name} (${p2tr||'unspecified P2TR'})`, testExample, meta)
   async function testExample ({ rpc, rest }: Btc) {
+
     // Compile the program.
     const prog = await SimplicityHL(src, args ? await args() : undefined);
+
     // Check against pre-defined CMR/P2TR.
     if (cmr)  { equal(prog.cmr, cmr); }
     if (p2tr) { equal(prog.p2tr, p2tr); equal(prog.toString(), p2tr); }
+
     // Fund program from deployer
     const id = await rpc.sendtoaddress(p2tr, String(1));
     const tx = testSplitTx(await rest.tx(id), p2tr, 1, cost).hex;
-    // Make spender wallet available in local RPC:
+
+    // Create local spender wallet and import it to RPC:
     const network = { bech32: 'tex', pubKeyHash: 0x6f, scriptHash: 0xc4, wif: 0xef, };
     const { address: user } = p2wpkh(PUB_ECDSA, network);
     await rpc.importaddress(user);
+
     // Note current balance:
     await rpc.rescanblockchain();
     const balance = ((await rpc.getreceivedbyaddress(user, 0)) as { bitcoin: number }).bitcoin;
+
     // Try spending from program:
     const fee     = 1e-4;
     const amount  = 1. - fee;
     const sighash = prog.redeemSighash({ tx, amount, fee, to: user });
     const witness = wits ? await wits(Base16.decode(sighash.toUpperCase())) : {};
+    const context = { rpc, rest, /*sign,*/ tx, amount, fee, witness, to: user };
     console.log({ prog, sighash, witness });
-    const context = { rpc, rest, tx, amount, fee, witness, to: user };
+
     if (fail) {
+
       // TX is expected to fail
       rejects(()=>prog.redeem(context));
+
       // Balance is expected to remain the same
       equal(await rpc.getreceivedbyaddress(user, 0), { bitcoin: balance });
+
     } else {
+
       // TX is expected to pass
       await prog.redeem(context);
-      // Balance is expected to increas
+
+      // Balance is expected to increase
       equal(await rpc.getreceivedbyaddress(user, 0), { bitcoin: balance + amount });
+
     }
     return context;
   }

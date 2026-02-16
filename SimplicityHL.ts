@@ -1,8 +1,10 @@
 import process from 'node:process';
 import Fn from '../../library/Fn.ts';
 import WasmLoader from '../../library/Wasm.ts';
+import Bitcoin from '../Bitcoin/Bitcoin.ts';
+import Err from '../../library/Err.ts';
 import { Num, Base16 } from '../../library/Number.ts';
-import type Btc from '../Bitcoin/Bitcoin.ts';
+import { Log } from '../../library/Log.ts';
 
 export default SimplicityHL;
 
@@ -11,10 +13,10 @@ export default SimplicityHL;
   * Example:
   *
   *   #!/usr/bin/env -S deno --allow-read=.
-  *   import { Btc, SimplicityHL } from '@hackbg/fadroma';
+  *   import { Bitcoin, SimplicityHL } from '@hackbg/fadroma';
   *   
   *   // Connect:
-  *   const { rpc, rest } = await Btc.LiquidTestnet();
+  *   const { rpc, rest } = await Bitcoin.LiquidTestnet();
   *
   *   // Compile:
   *   const program = await SimplicityHL('...source...');
@@ -32,7 +34,7 @@ async function SimplicityHL (source: string, args?: SimplicityHL.Args): Promise<
 
   const { compile } = await SimplicityHL.Wasm();
   const program = compile(source, { args }) as SimplicityHL;
-  const fields = (program as unknown as  { toJSON (): unknown }).toJSON();
+  const fields = (program as unknown as { toJSON (): unknown }).toJSON();
   const result = Object.assign(program, fields, { commit, redeem });
 
   if (typeof result.args === 'string') {
@@ -42,20 +44,46 @@ async function SimplicityHL (source: string, args?: SimplicityHL.Args): Promise<
   return result
 
   async function commit ({
-    rpc, rest, log: _0, warn:_1, debug = console.debug, ...options
+    rest,
+    rpc,
+    send = Bitcoin.Send({ rpc, rest }),
+    sign = Bitcoin.Sign.Rpc(rpc),
+    debug = console.debug, error = console.error, log: _0, warn:_1,
+    ...options
   }: SimplicityHL.Connection & SimplicityHL.CommitContext) {
     const tx = program.commitTx(options);
     debug('COMMIT: INPUT:  ', tx.tx.input);
     debug('COMMIT: OUTPUT: ', tx.tx.output);
+    const signed = await sign(tx.bytes);
+    debug('COMMIT: SIGNED:   ', Base16.encode(tx.bytes));
+    debug('COMMIT: SIGNED:   ', tx.hex);
+    debug('COMMIT: SIGNATURE:', signed);
     return await rest.tx(await rpc.sendrawtransaction(tx.hex));
   }
 
   async function redeem ({
-    rpc, rest, log: _0, warn: _1, debug = console.debug, ...options
+    rest,
+    rpc,
+    send  = Bitcoin.Send({ rpc, rest }),
+    sign  = Bitcoin.Sign.Rpc(rpc),
+    debug = console.debug,
+    error = console.error,
+    log: _0,
+    warn:_1,
+    ...options
   }: SimplicityHL.Connection & SimplicityHL.RedeemContext) {
     const tx = program.redeemTx(options);
-    debug('REDEEM: INPUT:  ', tx.tx.input);
-    debug('REDEEM: OUTPUT: ', tx.tx.output);
+    debug('REDEEM: INPUT:    ', tx.tx.input);
+    debug('REDEEM: OUTPUT:   ', tx.tx.output);
+    debug('REDEEM: BYTES:    ', tx.hex);
+    const signed = await sign(tx.bytes);
+    console.log({signed});
+    if (signed.errors?.length > 0) {
+      for (const e of signed.errors) error(e)
+      throw Err('Transaction signing errors', signed)
+    }
+    if (!signed.complete) throw new Error('Transaction not fully signed', signed)
+    debug('REDEEM: SIGNATURE:', signed);
     return await rest.tx(await rpc.sendrawtransaction(tx.hex));
   }
 
@@ -89,7 +117,19 @@ interface SimplicityHL {
 /** SimplicityHL integration. */
 namespace SimplicityHL {
 
-  export type Connection = Pick<Btc, 'rpc'|'rest'|'log'|'warn'|'debug'>;
+  export type Connection = Log & Partial<Pick<Bitcoin, 'rpc'|'rest'>> & {
+    send? (hex: Uint8Array): Fn.Async<unknown>
+    sign? (hex: Uint8Array): Fn.Async<Uint8Array>
+  };
+
+  /** Parameters for commit transaction. */
+  export interface CallContext { tx: unknown, amount: Num, fee: Num }
+
+  /** Parameters for commit transaction. */
+  export interface CommitContext extends CallContext { from: string }
+
+  /** Parameters for redeem transaction. */
+  export interface RedeemContext extends CallContext { to: string, witness?: Args }
 
   /** Load SimplicityHL WASM module. */
   export function Wasm (
@@ -133,15 +173,6 @@ namespace SimplicityHL {
 
     }
   }
-
-  /** Parameters for commit transaction. */
-  export interface CallContext { tx: unknown, amount: Num, fee: Num }
-
-  /** Parameters for commit transaction. */
-  export interface CommitContext extends CallContext { from: string }
-
-  /** Parameters for redeem transaction. */
-  export interface RedeemContext extends CallContext { to: string, witness?: Args }
 
   /** Partially signed transaction from SimplicityHL WASM module. */
   export interface Transaction {

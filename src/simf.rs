@@ -58,7 +58,7 @@ use crate::*;
         asserted!(options.is_object());
         let from = get!(options, "from", Input::address)?;
         let (prev, _, asset_id, balance, amount, fee) = Input::context(&options, &from)?;
-        let output = send(from.clone(), self.p2tr.clone(), asset_id, balance, amount, fee)?;
+        let output = send(&from, &self.p2tr, asset_id, balance, amount, fee)?;
         Output::tx(&transaction(output, vec![tx_input(prev)]))
     }
 
@@ -66,7 +66,7 @@ use crate::*;
     #[wasm_bindgen(js_name = redeemSighash)]
     pub fn redeem_sighash (&self, options: Object) -> Maybe<String> {
         let Program { compiled, script, p2tr, .. } = self;
-        let (tx, env) = redeem_context(&options, &compiled, &script, &p2tr)?;
+        let (_tx, env) = redeem_context(&options, &compiled, &script, &p2tr)?;
         Ok(format!("{}", env.c_tx_env().sighash_all()))
     }
 
@@ -77,43 +77,23 @@ use crate::*;
         debug!("REDEEM: p2tr={p2tr:?}\n   script={script:?}");
         let (tx, env) = redeem_context(&options, &compiled, &script, &p2tr)?;
         let witnessed = get!(options, "witness", Input::witness)?;
-        let pset      = redeem_pset(&env, compiled, &witnessed, tx, script)?;
-        let tx        = expected!("extract final tx": pset.extract_tx())?;
-        Output::tx(&tx)
+        let pset = redeem_pset(&env, compiled, &witnessed, tx, script)?;
+        Output::tx(&expected!("extract final tx": pset.extract_tx())?)
     }
-}
-
-fn redeem_2 (
-    options: &Object,
-    program: &CompiledProgram,
-    script:  &Script,
-    p2tr:    &Address
-) -> Maybe<PartiallySignedTransaction> {
-    use simplicityhl::elements::pset::{Input, Output, PartiallySignedTransaction};
-    let to = get!(options, "to", crate::Input::address)?;
-    let (prev, utxo, asset_id, balance, amount, fee) = crate::Input::context(options, p2tr)?;
-    let mut pst = PartiallySignedTransaction::new_v2();
-    let mut in0 = Input::from_prevout(prev);
-    in0.witness_utxo = Some(utxo.clone());
-    pst.add_input(in0);
-    pst.add_output(Output::new_explicit(to.script_pubkey(), amount, asset_id, None));
-    pst.extract_tx()?.verify_tx_amt_proofs(secp256k1::SECP256K1, &[utxo])?;
-    Ok(pst)
 }
 
 fn redeem_context (
     options: &Object, compiled: &CompiledProgram, script: &Script, p2tr: &Address
 ) -> Maybe<(Arc<Transaction>, Env)> {
     let (prev, utxo, asset_id, balance, amount, fee) = Input::context(options, p2tr)?;
-    let to  = get!(options, "to", Input::address)?;
-    let out = send(p2tr.clone(), to, asset_id, balance, amount, fee)?;
-    let tx  = Arc::new(transaction(out, vec![tx_input(prev)]));
+    let to = get!(options, "to", Input::address)?;
+    let output = send(p2tr, &to, asset_id, balance, amount, fee)?;
+    let tx = Arc::new(transaction(output, vec![tx_input(prev)]));
     tx.verify_tx_amt_proofs(secp256k1::SECP256K1, &[utxo.clone()])?;
-    let cmr  = compiled.commit().cmr();
-    let ctrl = ControlBlock::from_slice(&control_block(&script)?)?;
-    let hash = genesis()?;
-    let env  = ElementsEnv::new(tx.clone(), vec![elements_utxo(&utxo)], 0, cmr, ctrl, None, hash);
-    Ok((tx, env))
+    let cmr = compiled.commit().cmr();
+    let control = ControlBlock::from_slice(&control_block(&script)?)?;
+    let inputs = vec![elements_utxo(&utxo)];
+    Ok((tx.clone(), ElementsEnv::new(tx, inputs, 0, cmr, control, None, genesis()?)))
 }
 
 fn redeem_pset (
@@ -124,14 +104,14 @@ fn redeem_pset (
     script:    &Script,
 ) -> Maybe<PartiallySignedTransaction> {
     let (_result, redeem, cost) = evaluate(env, program, witnessed, )?;
-    let (program, witness)      = redeem.encode_to_vec();
-    let control                 = control_block(script)?;
-    let script_witness          = vec![witness, program, script.as_bytes().into(), control];
-    //if let Some(padding_bytes) = cost.get_padding(&script_witness) {
+    let (program, witness) = redeem.encode_to_vec();
+    let control = control_block(script)?;
+    let mut script_witness = vec![witness, program, script.as_bytes().into(), control];
+    if let Some(padding_bytes) = cost.get_padding(&script_witness) {
         //// SY: Annex has to be removed from the stack (?)
         //// https://github.com/ElementsProject/elements/blob/9748c00c3344b815d75c4b5c251b341fb34fa80f/src/script/interpreter.cpp#L3275
-        //script_witness.push(padding_bytes);
-    //}
+        script_witness.push(padding_bytes);
+    }
     asserted!(cost.is_budget_valid(&script_witness));
     let mut tx = Arc::unwrap_or_clone(tx);
     tx.input[0].witness = TxInWitness {
