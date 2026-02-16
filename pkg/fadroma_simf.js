@@ -215,9 +215,59 @@ if (!('encodeInto' in cachedTextEncoder)) {
 
 let WASM_VECTOR_LEN = 0;
 
+const KeypairFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_keypair_free(ptr >>> 0, 1));
+
 const ProgramFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_program_free(ptr >>> 0, 1));
+
+/**
+ * [secp256k1] keypair callable from JS.
+ */
+export class Keypair {
+    constructor() {
+        throw new Error('cannot invoke `new` directly');
+    }
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(Keypair.prototype);
+        obj.__wbg_ptr = ptr;
+        KeypairFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        KeypairFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_keypair_free(ptr, 0);
+    }
+    /**
+     * @param {Uint8Array} message
+     * @returns {Uint8Array}
+     */
+    signSchnorr(message) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ret = wasm.keypair_signSchnorr(this.__wbg_ptr, message);
+        return ret;
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    xOnlyPublicKey() {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ret = wasm.keypair_xOnlyPublicKey(this.__wbg_ptr);
+        return ret;
+    }
+}
+if (Symbol.dispose) Keypair.prototype[Symbol.dispose] = Keypair.prototype.free;
 
 /**
  * A valid compiled SimplicityHL program.
@@ -339,10 +389,11 @@ if (Symbol.dispose) Program.prototype[Symbol.dispose] = Program.prototype.free;
  * (Commitment Merkle root), such as that of a
  * compiled Simplicity program.
  * @param {any} cmr
+ * @param {any} arg1
  * @returns {string}
  */
-export function cmr_to_p2tr(cmr) {
-    const ret = wasm.cmr_to_p2tr(cmr);
+export function cmr_to_p2tr(cmr, arg1) {
+    const ret = wasm.cmr_to_p2tr(cmr, arg1);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -361,6 +412,19 @@ export function compile(source, options) {
         throw takeFromExternrefTable0(ret[1]);
     }
     return Program.__wrap(ret[0]);
+}
+
+/**
+ * Create [secp256k1] keypair from 32-byte secret.
+ * @param {Uint8Array} secret
+ * @returns {Keypair}
+ */
+export function keypair(secret) {
+    const ret = wasm.keypair(secret);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return Keypair.__wrap(ret[0]);
 }
 
 const EXPECTED_RESPONSE_TYPES = new Set(['basic', 'cors', 'default']);
@@ -428,6 +492,11 @@ function __wbg_get_imports() {
         _assertBoolean(ret);
         return ret;
     };
+    imports.wbg.__wbg___wbindgen_is_function_8d400b8b1af978cd = function(arg0) {
+        const ret = typeof(arg0) === 'function';
+        _assertBoolean(ret);
+        return ret;
+    };
     imports.wbg.__wbg___wbindgen_is_object_ce774f3490692386 = function(arg0) {
         const val = arg0;
         const ret = typeof(val) === 'object' && val !== null;
@@ -436,6 +505,11 @@ function __wbg_get_imports() {
     };
     imports.wbg.__wbg___wbindgen_is_string_704ef9c8fc131030 = function(arg0) {
         const ret = typeof(arg0) === 'string';
+        _assertBoolean(ret);
+        return ret;
+    };
+    imports.wbg.__wbg___wbindgen_is_undefined_f6b95eab589e0269 = function(arg0) {
+        const ret = arg0 === undefined;
         _assertBoolean(ret);
         return ret;
     };
@@ -474,6 +548,18 @@ function __wbg_get_imports() {
         const ret = typeof arg0;
         return ret;
     };
+    imports.wbg.__wbg_call_3020136f7a2d6e44 = function() { return handleError(function (arg0, arg1, arg2) {
+        const ret = arg0.call(arg1, arg2);
+        return ret;
+    }, arguments) };
+    imports.wbg.__wbg_call_abb4ff46ce38be40 = function() { return handleError(function (arg0, arg1) {
+        const ret = arg0.call(arg1);
+        return ret;
+    }, arguments) };
+    imports.wbg.__wbg_crypto_574e78ad8b13b65f = function() { return logError(function (arg0) {
+        const ret = arg0.crypto;
+        return ret;
+    }, arguments) };
     imports.wbg.__wbg_debug_9d0c87ddda3dc485 = function() { return logError(function (arg0) {
         console.debug(arg0);
     }, arguments) };
@@ -487,6 +573,9 @@ function __wbg_get_imports() {
         } finally {
             wasm.__wbindgen_free(deferred0_0, deferred0_1, 1);
         }
+    }, arguments) };
+    imports.wbg.__wbg_getRandomValues_b8f5dbd5f3995a9e = function() { return handleError(function (arg0, arg1) {
+        arg0.getRandomValues(arg1);
     }, arguments) };
     imports.wbg.__wbg_get_af9dab7e9603ea93 = function() { return handleError(function (arg0, arg1) {
         const ret = Reflect.get(arg0, arg1);
@@ -511,6 +600,10 @@ function __wbg_get_imports() {
     imports.wbg.__wbg_log_1d990106d99dacb7 = function() { return logError(function (arg0) {
         console.log(arg0);
     }, arguments) };
+    imports.wbg.__wbg_msCrypto_a61aeb35a24c1329 = function() { return logError(function (arg0) {
+        const ret = arg0.msCrypto;
+        return ret;
+    }, arguments) };
     imports.wbg.__wbg_new_1ba21ce319a06297 = function() { return logError(function () {
         const ret = new Object();
         return ret;
@@ -519,16 +612,35 @@ function __wbg_get_imports() {
         const ret = new Error();
         return ret;
     }, arguments) };
+    imports.wbg.__wbg_new_no_args_cb138f77cf6151ee = function() { return logError(function (arg0, arg1) {
+        const ret = new Function(getStringFromWasm0(arg0, arg1));
+        return ret;
+    }, arguments) };
     imports.wbg.__wbg_new_with_length_aa5eaf41d35235e5 = function() { return logError(function (arg0) {
         const ret = new Uint8Array(arg0 >>> 0);
+        return ret;
+    }, arguments) };
+    imports.wbg.__wbg_node_905d3e251edff8a2 = function() { return logError(function (arg0) {
+        const ret = arg0.node;
         return ret;
     }, arguments) };
     imports.wbg.__wbg_parse_a09a54cf72639456 = function() { return handleError(function (arg0, arg1) {
         const ret = JSON.parse(getStringFromWasm0(arg0, arg1));
         return ret;
     }, arguments) };
+    imports.wbg.__wbg_process_dc0fbacc7c1c06f7 = function() { return logError(function (arg0) {
+        const ret = arg0.process;
+        return ret;
+    }, arguments) };
     imports.wbg.__wbg_prototypesetcall_dfe9b766cdc1f1fd = function() { return logError(function (arg0, arg1, arg2) {
         Uint8Array.prototype.set.call(getArrayU8FromWasm0(arg0, arg1), arg2);
+    }, arguments) };
+    imports.wbg.__wbg_randomFillSync_ac0988aba3254290 = function() { return handleError(function (arg0, arg1) {
+        arg0.randomFillSync(arg1);
+    }, arguments) };
+    imports.wbg.__wbg_require_60cc747a6bc5215a = function() { return handleError(function () {
+        const ret = module.require;
+        return ret;
     }, arguments) };
     imports.wbg.__wbg_set_169e13b608078b7b = function() { return logError(function (arg0, arg1, arg2) {
         arg0.set(getArrayU8FromWasm0(arg1, arg2));
@@ -545,8 +657,32 @@ function __wbg_get_imports() {
         getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
         getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
     }, arguments) };
+    imports.wbg.__wbg_static_accessor_GLOBAL_769e6b65d6557335 = function() { return logError(function () {
+        const ret = typeof global === 'undefined' ? null : global;
+        return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
+    }, arguments) };
+    imports.wbg.__wbg_static_accessor_GLOBAL_THIS_60cf02db4de8e1c1 = function() { return logError(function () {
+        const ret = typeof globalThis === 'undefined' ? null : globalThis;
+        return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
+    }, arguments) };
+    imports.wbg.__wbg_static_accessor_SELF_08f5a74c69739274 = function() { return logError(function () {
+        const ret = typeof self === 'undefined' ? null : self;
+        return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
+    }, arguments) };
+    imports.wbg.__wbg_static_accessor_WINDOW_a8924b26aa92d024 = function() { return logError(function () {
+        const ret = typeof window === 'undefined' ? null : window;
+        return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
+    }, arguments) };
     imports.wbg.__wbg_stringify_655a6390e1f5eb6b = function() { return handleError(function (arg0) {
         const ret = JSON.stringify(arg0);
+        return ret;
+    }, arguments) };
+    imports.wbg.__wbg_subarray_845f2f5bce7d061a = function() { return logError(function (arg0, arg1, arg2) {
+        const ret = arg0.subarray(arg1 >>> 0, arg2 >>> 0);
+        return ret;
+    }, arguments) };
+    imports.wbg.__wbg_versions_c01dfd4722a88165 = function() { return logError(function (arg0) {
+        const ret = arg0.versions;
         return ret;
     }, arguments) };
     imports.wbg.__wbg_warn_6e567d0d926ff881 = function() { return logError(function (arg0) {
@@ -560,6 +696,11 @@ function __wbg_get_imports() {
     imports.wbg.__wbindgen_cast_4625c577ab2ec9ee = function() { return logError(function (arg0) {
         // Cast intrinsic for `U64 -> Externref`.
         const ret = BigInt.asUintN(64, arg0);
+        return ret;
+    }, arguments) };
+    imports.wbg.__wbindgen_cast_cb9088102bce6b30 = function() { return logError(function (arg0, arg1) {
+        // Cast intrinsic for `Ref(Slice(U8)) -> NamedExternref("Uint8Array")`.
+        const ret = getArrayU8FromWasm0(arg0, arg1);
         return ret;
     }, arguments) };
     imports.wbg.__wbindgen_init_externref_table = function() {

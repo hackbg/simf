@@ -1,7 +1,7 @@
 #!/usr/bin/env -S deno run --allow-read --allow-env --allow-run --allow-write=/tmp/fadroma --allow-import=cdn.skypack.dev:443,deno.land:443 --allow-net=127.0.0.1:8941,liquidtestnet.com:443,blockstream.info:443
-import Fn   from '../../library/Fn.ts';
+import Fn from '../../library/Fn.ts';
+import Btc from '../Bitcoin/Bitcoin.ts';
 import Test from '../../library/Test.ts';
-import Btc  from '../Bitcoin/Bitcoin.ts';
 import SimplicityHL from './SimplicityHL.ts';
 import { Base16 } from '../../library/Number.ts';
 import { p2wpkh } from 'npm:@scure/btc-signer';
@@ -9,19 +9,22 @@ import { pubECDSA, pubSchnorr, signSchnorr } from 'npm:@scure/btc-signer/utils.j
 import { deepStrictEqual as equal, rejects } from 'node:assert';
 const { is: Is, has: Has } = Test;
 /** Non-private key. */
-const PRIVATE     = new Uint8Array(Array(32).fill(1));
+const SECRET = new Uint8Array(Array(32).fill(1));
+/** WASM-backed Secp256k1 keypair for Schnorr signing. */
+const KEYPAIR = await SimplicityHL.Keypair(SECRET);
 /** Public key for ECDSA (transactions). */
-const PUB_ECDSA   = pubECDSA(PRIVATE);
+const PUB_ECDSA = pubECDSA(SECRET);
 /** Sign (ECDSA) transaction with test private key. */
-const sign        = (data: Uint8Array<ArrayBufferLike> = new Uint8Array()) => signSchnorr(data, PRIVATE);
+const signEcdsa = (data: Uint8Array<ArrayBufferLike> = new Uint8Array()) => signSchnorr(data, SECRET);
 /** Public key for Schnorr (witnesses). */
-const PUB_SCHNORR = pubSchnorr(PRIVATE);
+const PUB_SCHNORR = pubSchnorr(SECRET);
 /** Sign (Schnorr) witness data with test private key. */
-const signWitness = (data: Uint8Array<ArrayBufferLike> = new Uint8Array()) => signSchnorr(data, PRIVATE);
+const signSchnorr = (data: Uint8Array<ArrayBufferLike> = new Uint8Array()) => signSchnorr(data, SECRET);
 /** Test the SimplicityHL support in Fadroma. */
 export default Test(import.meta, 'SimplicityHL',
   // Check that the API entrypoints are present on the WASM module:
   Test('WASM', () => SimplicityHL.Wasm(),
+    Has('keypair',     Is('function')),
     Has('cmr_to_p2tr', Is('function')),
     Has('compile',     Is('function'))),
   // Compile and deploy example programs:
@@ -63,8 +66,8 @@ export default Test(import.meta, 'SimplicityHL',
       '0b771386a2ee6f0cfb296b0656a98431b77be650ea1eb0f7beb05894fe9bba87',
       'tex1p53f33nnjed42the73v3y2hgdgmhq98fh3d5r05u23fjwc0xyp9fqzn6ulg',
       `fn main () { jet::bip_0340_verify((param::PK, jet::sig_all_hash()), witness::SIG) }`,
-      () => ({ PK: SimplicityHL.Arg.Pubkey(PUB_SCHNORR) }),
-      (sighash: Uint8Array) => ({ SIG: SimplicityHL.Arg.Signature(signWitness(sighash)), })),
+      () => ({ PK: SimplicityHL.Arg.Pubkey(KEYPAIR.xOnlyPublicKey()) }),
+      (sighash: Uint8Array) => ({ SIG: SimplicityHL.Arg.Signature(KEYPAIR.signSchnorr(sighash)), })),
     // - more complex signing
     Example(true,  "pay to pubkey hash", 2.7e-7,
       'e65e19e139a13583a0a7efb24be13c20d578f06f51b2a7fe7c7b9097072dbabe',
@@ -74,9 +77,9 @@ export default Test(import.meta, 'SimplicityHL',
        fn sha2 (string: u256) -> u256 { let hasher: Ctx8 = jet::sha_256_ctx_8_init();
                                         let hasher: Ctx8 = jet::sha_256_ctx_8_add_32(hasher, string);
                                         jet::sha_256_ctx_8_finalize(hasher) }`,
-      () => ({ PKH: SimplicityHL.Arg.Pubkey(PUB_SCHNORR) }),
-      (sighash: Uint8Array) => ({ SIG: SimplicityHL.Arg.Signature(signWitness(sighash))
-                                , PUB: SimplicityHL.Arg.Pubkey(PUB_ECDSA), })),
+      () => ({ PKH: SimplicityHL.Arg.Pubkey(KEYPAIR.xOnlyPublicKey()) /*FIXME hashit*/ }),
+      (sighash: Uint8Array) => ({ SIG: SimplicityHL.Arg.Signature(KEYPAIR.signSchnorr(sighash))
+                                , PUB: SimplicityHL.Arg.Pubkey(KEYPAIR.xOnlyPublicKey()), })),
     // - multisig: TODO
     
     // Shutdown the localnet.
@@ -106,7 +109,7 @@ function Example (
   async function testExample ({ rpc, rest }: Btc) {
 
     // Compile the program.
-    const prog = await SimplicityHL(src, args ? await args() : undefined);
+    const prog = await SimplicityHL(src, { args: args ? await args() : undefined });
 
     // Check against pre-defined CMR/P2TR.
     if (cmr)  { equal(prog.cmr, cmr); }
@@ -129,9 +132,13 @@ function Example (
     const fee     = 1e-4;
     const amount  = 1. - fee;
     const sighash = prog.redeemSighash({ tx, amount, fee, to: user });
+    console.log({ sighash });
     const witness = wits ? await wits(Base16.decode(sighash.toUpperCase())) : {};
+    console.log({ witness });
+
+    // Ultimate execution context.
+    // TODO: Simplify/separate context from args/?
     const context = { rpc, rest, /*sign,*/ tx, amount, fee, witness, to: user };
-    console.log({ prog, sighash, witness });
 
     if (fail) {
 

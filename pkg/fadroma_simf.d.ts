@@ -1,6 +1,14 @@
 /* tslint:disable */
 /* eslint-disable */
 
+export class Keypair {
+  private constructor();
+  free(): void;
+  [Symbol.dispose](): void;
+  signSchnorr(message: Uint8Array): Uint8Array;
+  xOnlyPublicKey(): Uint8Array;
+}
+
 export class Program {
   private constructor();
 /**
@@ -40,20 +48,29 @@ export class Program {
  * (Commitment Merkle root), such as that of a
  * compiled Simplicity program.
  */
-export function cmr_to_p2tr(cmr: any): string;
+export function cmr_to_p2tr(cmr: any, arg1: any): string;
 
 /**
  * Compile a SimplicityHL [Program].
  */
 export function compile(source: string, options: object): Program;
 
+/**
+ * Create [secp256k1] keypair from 32-byte secret.
+ */
+export function keypair(secret: Uint8Array): Keypair;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
   readonly memory: WebAssembly.Memory;
-  readonly cmr_to_p2tr: (a: any) => [number, number, number];
+  readonly cmr_to_p2tr: (a: any, b: any) => [number, number, number];
+  readonly __wbg_keypair_free: (a: number, b: number) => void;
   readonly __wbg_program_free: (a: number, b: number) => void;
   readonly compile: (a: any, b: any) => [number, number, number];
+  readonly keypair: (a: any) => [number, number, number];
+  readonly keypair_signSchnorr: (a: number, b: any) => any;
+  readonly keypair_xOnlyPublicKey: (a: number) => any;
   readonly program_commitTx: (a: number, b: any) => [number, number, number];
   readonly program_redeemSighash: (a: number, b: any) => [number, number, number, number];
   readonly program_redeemTx: (a: number, b: any) => [number, number, number];
@@ -70,10 +87,10 @@ export interface InitOutput {
   readonly rustsecp256k1_v0_10_0_default_illegal_callback_fn: (a: number, b: number) => void;
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
-  readonly __wbindgen_free: (a: number, b: number, c: number) => void;
   readonly __wbindgen_exn_store: (a: number) => void;
   readonly __externref_table_alloc: () => number;
   readonly __wbindgen_externrefs: WebAssembly.Table;
+  readonly __wbindgen_free: (a: number, b: number, c: number) => void;
   readonly __externref_table_dealloc: (a: number) => void;
   readonly __wbindgen_start: () => void;
 }

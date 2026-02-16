@@ -1,18 +1,50 @@
 use crate::*;
 
+/// Create [secp256k1] keypair from 32-byte secret.
+#[wasm_bindgen] pub fn keypair (secret: Uint8Array) -> Maybe<Keypair> {
+    console_error_panic_hook::set_once();
+    let mut bytes = vec![0u8;32];
+    secret.copy_to(&mut bytes);
+    let keypair = secp256k1::Keypair::from_seckey_slice(secp256k1::SECP256K1, &bytes)?;
+    Ok(Keypair(keypair))
+}
+
+/// [secp256k1] keypair callable from JS.
+#[wasm_bindgen] pub struct Keypair (secp256k1::Keypair);
+
+#[wasm_bindgen] impl Keypair {
+    #[wasm_bindgen(js_name = "signSchnorr")]
+    pub fn sign_schnorr (&self, message: Uint8Array) -> Uint8Array {
+        let mut bytes = [0u8;32];
+        message.copy_to(&mut bytes);
+        let result = Uint8Array::new_with_length(64);
+        result.copy_from(&self.0.sign_schnorr(secp256k1::Message::from_digest(bytes)).serialize());
+        result
+    }
+    #[wasm_bindgen(js_name = "xOnlyPublicKey")]
+    pub fn xonly_public_key (&self) -> Uint8Array {
+        let result = Uint8Array::new_with_length(32);
+        result.copy_from(&self.0.x_only_public_key().0.serialize());
+        result
+    }
+}
+
 /// Compile a SimplicityHL [Program].
 #[wasm_bindgen] pub fn compile (source: JsString, options: Object) -> Maybe<Program> {
     console_error_panic_hook::set_once();
     let source = source.as_string().unwrap_or_default();
-    let mut debug = false;
-    let mut prune = false;
+    let mut chain = String::from("elementsregtest");
     let mut args  = Arguments::default();
     if options.is_object() {
-        debug = get!(options, "debug", Input::flag);
-        prune = get!(options, "prune", Input::flag);
-        args  = get!(options, "args",  Input::args)?;
+        args = get!(options, "args",  Input::args)?;
+        let chain_val = get!(options, "chain");
+        if JsString::is_type_of(&chain_val) {
+            chain = required!("chain selector must be string": chain_val.as_string())?
+        } else {
+            return err!("invalid chain: {chain_val:?}; try elementsregtest, liqudtestnet")
+        };
     }
-    Program::new(&source, args, debug, prune)
+    Program::new(chain.as_str(), &source, args)
 }
 
 /// A valid compiled SimplicityHL program.
@@ -20,9 +52,7 @@ use crate::*;
     pub(crate) args:     Arguments,
     pub(crate) commit:   Arc<CommitNode<Elements>>,
     pub(crate) compiled: CompiledProgram,
-    pub(crate) debug:    bool,
     pub(crate) p2tr:     Address,
-    pub(crate) prune:    bool,
     pub(crate) script:   Script,
     pub(crate) source:   Arc<str>,
 }
@@ -30,14 +60,25 @@ use crate::*;
 #[wasm_bindgen] impl Program {
 
     /// Internal constructor.
-    fn new (source: &str, args: Arguments, debug: bool, prune: bool) -> Maybe<Self> {
-        let compiled = CompiledProgram::new(source, args.clone(), debug);
+    fn new (chain: &str, source: &str, args: Arguments) -> Maybe<Self> {
+        let compiled = CompiledProgram::new(source, args.clone(), true);
+        let source = source.into();
         let compiled = expected_display!("compile failed": compiled)?;
         let commit = compiled.commit();
         let script = Script::from(commit.cmr().to_byte_array().to_vec());
-        let source = source.into();
-        let p2tr = script_to_p2tr(script.clone())?;
-        Ok(Self { source, p2tr, debug, prune, args, compiled, commit, script, })
+        let tap = script_to_taproot(script.clone())?;
+        let p2tr = Address::p2tr(
+            SECP256K1,
+            tap.internal_key(),
+            tap.merkle_root(),
+            None,
+            match chain {
+                "liquidtestnet"   => &AddressParams::LIQUID_TESTNET,
+                "elementsregtest" => &AddressParams::ELEMENTS,
+                _ => return err!("invalid chain: {chain}; try elementsregtest, liqudtestnet")
+            }
+        );
+        Ok(Self { source, p2tr, args, compiled, commit, script, })
     }
 
     /// Use this in JS to get the properties of the compiled program.

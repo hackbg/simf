@@ -27,14 +27,17 @@ pub(crate) use wasm_bindgen::prelude::*;
         encode::deserialize as deserialize_tx,
         hash_types::BlockHash,
         pset::{PartiallySignedTransaction, serialize::Serialize,},
-        secp256k1_zkp as secp256k1,
+        secp256k1_zkp::{self as secp256k1, SECP256K1, XOnlyPublicKey},
         schnorr::UntweakedPublicKey,
         taproot::{ControlBlock, LeafVersion, TaprootBuilder, TaprootSpendInfo},
     }
 };
 
 // A generous helping of utility macros,
-// to make writing things less annoying:
+// to make writing things less annoying.
+// When they are defined right here, they
+// are available in all subsequen modules.
+// Feel free to skip reading them for now.
 
 /// Log to JS console.
 #[allow(unused)] macro_rules! log(($msg:literal $(, $expr:expr)*) => {
@@ -86,13 +89,10 @@ macro_rules! obj(($($id:literal = $val:expr),+ $(,)?) => {{
     $(set!(object, $id, JsValue::from($val));)+
     object }});
 
-// The above macros are available in all subsequent modules:
+// Okay, with that out of the way... *deep breath*
 
 mod simf; pub use self::simf::*;
-
 mod simf_parse; pub use self::simf_parse::*;
-
-// And so are the below definitions:
 
 /// Concrete type of [ElementsEnv] used.
 pub type Env = simplicityhl::simplicity::jet::elements::ElementsEnv<Arc<Transaction>>;
@@ -103,43 +103,40 @@ pub(crate) type Maybe<T> = Result<T, JsError>;
 /// Create SimplicityHL P2TR address from a [Cmr]
 /// (Commitment Merkle root), such as that of a
 /// compiled Simplicity program.
-#[wasm_bindgen] pub fn cmr_to_p2tr (cmr: JsValue) -> Maybe<JsString> {
+#[wasm_bindgen] pub fn cmr_to_p2tr (cmr: JsValue, arg1: JsValue) -> Maybe<JsString> {
     console_error_panic_hook::set_once();
-    Ok(format!("{}", script_to_p2tr(Script::from(Input::bytes(cmr)?))?).into())
-}
-
-/// Generate P2TR (pay-to-taproot) [Address] from a [Script]'s [Cmr].
-pub(crate) fn script_to_p2tr (script: Script) -> Maybe<Address> {
-    Ok(taproot_to_p2tr(&script_to_taproot(script)?))
-}
-
-/// Generate P2TR (pay-to-taproot) [Address] from [TaprootSpendInfo].
-pub(crate) fn taproot_to_p2tr (
-    tap: &TaprootSpendInfo,
-    /* TODO: kind: Option<AddressParams> - vary by chain mode? */
-) -> Address {
-    let key  = tap.internal_key();
-    let root = tap.merkle_root();
-    Address::p2tr(secp256k1::SECP256K1, key, root, None, &AddressParams::LIQUID_TESTNET)
+    let tap = script_to_taproot(Script::from(Input::bytes(cmr)?))?;
+    let chain = if JsString::is_type_of(&arg1) {
+        required!("chain selector must be string": arg1.as_string())?
+    } else {
+        return err!("invalid chain: {arg1:?}; try elementsregtest, liqudtestnet")
+    };
+    Ok(format!("{}", Address::p2tr(
+        SECP256K1,
+        tap.internal_key(),
+        tap.merkle_root(),
+        None,
+        match chain.as_str() {
+            "liquidtestnet"   => &AddressParams::LIQUID_TESTNET,
+            "elementsregtest" => &AddressParams::ELEMENTS,
+            _ => return err!("invalid chain: {arg1:?}; try elementsregtest, liqudtestnet")
+        }
+    )).into())
 }
 
 /// Generate [TaprootSpendInfo] for a given [Script].
 pub(crate) fn script_to_taproot (script: Script) -> Maybe<TaprootSpendInfo> {
     let tap = TaprootBuilder::new();
-    let ver = expected!("use constant leaf version": LeafVersion::from_u8(0xbe))?;
-    let tap = expected!("taproot: add leaf": tap.add_leaf_with_ver(0, script, ver))?;
-    let tap = expected!("taproot: finalize": tap.finalize(&secp256k1::SECP256K1, unspendable()?))?;
+    let tap = expected!("taproot: add leaf": tap.add_leaf_with_ver(0, script, leaf_version()))?;
+    let tap = expected!("taproot: finalize": tap.finalize(&SECP256K1, unspendable()?))?;
     Ok(tap)
 }
 
-/// FIXME: Magic constant - unspendable key.
-///
+/// Magic constant: unspendable key.
 /// Taken from `SY:?`, whereas `SC:?` seems to use deployer's key.
-pub(crate) fn unspendable () -> Maybe<UntweakedPublicKey> {
-    expected!("unspendable key": UntweakedPublicKey::from_slice(
-        &expected!("unspendable key": hex::decode(
-            "50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0"
-        ))?
+pub(crate) fn unspendable () -> Maybe<XOnlyPublicKey> {
+    expected!("constant failed to deserialize: unspendable key": XOnlyPublicKey::from_str(
+        "50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0"
     ))
 }
 

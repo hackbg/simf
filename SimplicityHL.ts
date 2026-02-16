@@ -30,27 +30,34 @@ export default SimplicityHL;
   *   console.log(await program.redeem({ rpc, rest, tx, amount: 1, fee: 1e-4, to: you, witness }));
   *
   **/
-async function SimplicityHL (source: string, args?: SimplicityHL.Args): Promise<SimplicityHL> {
-
+async function SimplicityHL (source: string, { args, chain = 'elementsregtest' }: {
+  args?: SimplicityHL.Args,
+  chain?: 'elementsregtest'|'liquidtestnet'
+} = {}): Promise<SimplicityHL> {
+  // Compilation is synchronous, but we have to wait for the WASM the first time (FIXME?)
   const { compile } = await SimplicityHL.Wasm();
-  const program = compile(source, { args }) as SimplicityHL;
+  // Compile the program, receiving a WASM descriptor.
+  const program = compile(source, { args, chain }) as SimplicityHL;
+  // Inspect WASM program descriptor, receiving the P2TR.
   const fields = (program as unknown as { toJSON (): unknown }).toJSON();
-  const result = Object.assign(program, fields, { commit, redeem });
+  // Deserialize args (FIXME? do this on the rust side)
+  if (typeof fields.args === 'string') fields.args = JSON.parse(fields.args as unknown as string);
+  // Manually attach properties and methods:
+  return Object.assign(program, fields, { commit: Commit(program), redeem: Redeem(program) });
+}
 
-  if (typeof result.args === 'string') {
-    result.args = JSON.parse(result.args as unknown as string);
-  }
-
-  return result
-
-  async function commit ({
+function Commit (program) {
+  return async function commit ({
     rest,
     rpc,
-    send = Bitcoin.Send({ rpc, rest }),
-    sign = Bitcoin.Sign.Rpc(rpc),
-    debug = console.debug, error = console.error, log: _0, warn:_1,
+    send  = Bitcoin.Send({ rpc, rest }),
+    sign  = Bitcoin.Sign.Rpc(rpc),
+    debug = console.debug,
+    error = console.error,
+    log:  _0,
+    warn: _1,
     ...options
-  }: SimplicityHL.Connection & SimplicityHL.CommitContext) {
+  }: SimplicityHL.Connection & SimplicityHL.Commit) {
     const tx = program.commitTx(options);
     debug('COMMIT: INPUT:  ', tx.tx.input);
     debug('COMMIT: OUTPUT: ', tx.tx.output);
@@ -60,33 +67,34 @@ async function SimplicityHL (source: string, args?: SimplicityHL.Args): Promise<
     debug('COMMIT: SIGNATURE:', signed);
     return await rest.tx(await rpc.sendrawtransaction(tx.hex));
   }
+}
 
-  async function redeem ({
+function Redeem (program) {
+  return async function redeem ({
     rest,
     rpc,
     send  = Bitcoin.Send({ rpc, rest }),
     sign  = Bitcoin.Sign.Rpc(rpc),
     debug = console.debug,
     error = console.error,
-    log: _0,
-    warn:_1,
+    log:  _0,
+    warn: _1,
     ...options
-  }: SimplicityHL.Connection & SimplicityHL.RedeemContext) {
+  }: SimplicityHL.Connection & SimplicityHL.Redeem) {
     const tx = program.redeemTx(options);
-    debug('REDEEM: INPUT:    ', tx.tx.input);
-    debug('REDEEM: OUTPUT:   ', tx.tx.output);
+    for (let i = 0; i < tx.tx.input.length; i++)  debug(`REDEEM: INPUT ${i}:`,  tx.tx.input[i]);
+    for (let i = 0; i < tx.tx.output.length; i++) debug(`REDEEM: OUTPUT ${i}:`, tx.tx.output[i]);
     debug('REDEEM: BYTES:    ', tx.hex);
     const signed = await sign(tx.bytes);
     console.log({signed});
     if (signed.errors?.length > 0) {
       for (const e of signed.errors) error(e)
-      throw Err('Transaction signing errors', signed)
+      throw Err(`Transaction signing errors (${signed.errors.length})`, signed)
     }
     if (!signed.complete) throw new Error('Transaction not fully signed', signed)
     debug('REDEEM: SIGNATURE:', signed);
     return await rest.tx(await rpc.sendrawtransaction(tx.hex));
   }
-
 }
 
 /** Compiled SimplicityHL program.
@@ -103,41 +111,48 @@ interface SimplicityHL {
   /** The program's template arguments. */
   args?:        SimplicityHL.Args,
   /** Transfer funds to program. */
-  commit        (_: SimplicityHL.CommitContext & SimplicityHL.Connection):  Promise<string>
+  commit        (_: SimplicityHL.Commit & SimplicityHL.Connection):  Promise<string>
   /** Generate transaction to transfer funds to program. */
-  commitTx      (_: SimplicityHL.CommitContext): SimplicityHL.Transaction
+  commitTx      (_: SimplicityHL.Commit): SimplicityHL.Transaction
   /** Transfer funds from program. */
-  redeem        (_: SimplicityHL.RedeemContext & SimplicityHL.Connection): Promise<string>
+  redeem        (_: SimplicityHL.Redeem & SimplicityHL.Connection): Promise<string>
   /** Generate transaction to redeem funds from program. */
-  redeemTx      (_: SimplicityHL.RedeemContext): SimplicityHL.Transaction
+  redeemTx      (_: SimplicityHL.Redeem): SimplicityHL.Transaction
   /** Get sighash for redeem to sign by witness. */
-  redeemSighash (_: SimplicityHL.RedeemContext): string;
+  redeemSighash (_: SimplicityHL.Redeem): string;
 }
 
 /** SimplicityHL integration. */
 namespace SimplicityHL {
 
-  export type Connection = Log & Partial<Pick<Bitcoin, 'rpc'|'rest'>> & {
+  /** Connection to Elements RPC for sending and signing transactions. */
+  export type Connection = (Log & Partial<Pick<Bitcoin, 'rpc'|'rest'>>) & {
     send? (hex: Uint8Array): Fn.Async<unknown>
     sign? (hex: Uint8Array): Fn.Async<Uint8Array>
   };
 
-  /** Parameters for commit transaction. */
-  export interface CallContext { tx: unknown, amount: Num, fee: Num }
+  /** Create a Secp256k1 keypair in Rust. */
+  export async function Keypair (secret: Uint8Array) {
+    const { keypair } = await SimplicityHL.Wasm();
+    return keypair(secret) as Keypair;
+  }
+
+  /** Secp256k1 keypair.
+    *
+    * TODO: Move to ../Bitcoin (but it doesn't have a WASM yet) */
+  export interface Keypair {
+    signSchnorr    (message: Uint8Array): Uint8Array;
+    xOnlyPublicKey ():                    Uint8Array;
+  }
 
   /** Parameters for commit transaction. */
-  export interface CommitContext extends CallContext { from: string }
+  export interface Call { tx: unknown, amount: Num, fee: Num }
+
+  /** Parameters for commit transaction. */
+  export interface Commit extends Call { from: string }
 
   /** Parameters for redeem transaction. */
-  export interface RedeemContext extends CallContext { to: string, witness?: Args }
-
-  /** Load SimplicityHL WASM module. */
-  export function Wasm (
-    wasm = process.env['FADROMA_SIMF_WASM'] || import.meta.resolve('./pkg/fadroma_simf_bg.wasm'),
-    wrap = process.env['FADROMA_SIMF_WRAP'] || import.meta.resolve('./pkg/fadroma_simf.js'),
-  ) {
-    return WasmLoader<Wasm>(wasm, wrap)()
-  }
+  export interface Redeem extends Call { to: string, witness?: Args }
 
   /** Collection of SimplicityHL program arguments (template parameters or witness values). */
   export interface Args extends Record<string, Arg> {}
@@ -149,19 +164,15 @@ namespace SimplicityHL {
     *
     * TODO: Fully cover https://github.com/BlockstreamResearch/SimplicityHL/blob/master/src/types.rs#L815 */
   export namespace Arg {
-
     /** SimplicityHL signature field (32 bytes). */
     export const Signature = U256('Signature');
-
     /** SimplicityHL public key field (32 bytes). */
-    export const Pubkey = U256('Pubkey');
-
+    export const Pubkey    = U256('Pubkey');
     /** SimplicityHL message field (32 bytes). */
-    export const Message = U256('Message');
+    export const Message   = U256('Message');
 
     /** Name-tagged 32-byte array, equivalent to U256. */
     function U256 (type: string) {
-
       /** Construct the given kind of U256-like. */
       return Fn.Name(type, function defU256 (
         value: Uint8Array<ArrayBufferLike> = new Uint8Array(new Array(32).fill(0))
@@ -170,7 +181,6 @@ namespace SimplicityHL {
         console.debug({ type, length: value.length, value, hex });
         return { type, value: hex }
       });
-
     }
   }
 
@@ -191,5 +201,13 @@ namespace SimplicityHL {
     cmr_to_p2tr: Fn.Returns<string>,
     compile:     Fn<[string, object?], SimplicityHL>,
     toJSON:      Fn.Returns<object>,
+  }
+
+  /** Load SimplicityHL WASM module. */
+  export function Wasm (
+    wasm = process.env['FADROMA_SIMF_WASM'] || import.meta.resolve('./pkg/fadroma_simf_bg.wasm'),
+    wrap = process.env['FADROMA_SIMF_WRAP'] || import.meta.resolve('./pkg/fadroma_simf.js'),
+  ) {
+    return WasmLoader<Wasm>(wasm, wrap)()
   }
 }

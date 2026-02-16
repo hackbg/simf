@@ -3,7 +3,24 @@ use crate::*;
 pub struct Input;
 
 impl Input {
-    pub fn sats (input: JsValue) -> Maybe<u64> {
+
+    pub(crate) fn chain (input: JsValue) -> Maybe<AddressParams> {
+        if JsString::is_type_of(&input) {
+            Self::chain_str(required!("decode input": input.as_string())?.as_str())
+        } else {
+            err!("invalid chain: {input:?}; try elementsregtest, liqudtestnet")
+        }
+    }
+    
+    pub(crate) fn chain_str (input: &str) -> Maybe<AddressParams> {
+        Ok(match input {
+            "liquidtestnet"   => AddressParams::LIQUID_TESTNET,
+            "elementsregtest" => AddressParams::ELEMENTS,
+            _ => return err!("invalid chain: {input}; try elementsregtest, liqudtestnet")
+        })
+    }
+
+    pub(crate) fn sats (input: JsValue) -> Maybe<u64> {
         if BigInt::is_type_of(&input) {
             expected!("bigint->u64": u64::try_from(input))
         } else if Number::is_type_of(&input) {
@@ -17,12 +34,12 @@ impl Input {
         }
     }
 
-    pub fn flag (x: JsValue) -> bool {
+    pub(crate) fn flag (x: JsValue) -> bool {
         x.is_truthy()
     }
 
     /// Accepts either [Uint8Array] or hex string.
-    pub fn bytes (input: JsValue) -> Maybe<Vec<u8>> {
+    pub(crate) fn bytes (input: JsValue) -> Maybe<Vec<u8>> {
         if Uint8Array::instanceof(&input) { 
             Ok(Uint8Array::unchecked_from_js(input).to_vec())
         } else if JsString::is_type_of(&input) {
@@ -32,20 +49,20 @@ impl Input {
         }
     }
 
-    pub fn address (x: JsValue) -> Maybe<Address> {
+    pub(crate) fn address (x: JsValue) -> Maybe<Address> {
         let address = required!("addr: not string": x.as_string())?;
         let address = expected!("addr: not parsed": Address::from_str(&address))?;
         Ok(address)
     }
 
-    pub fn tx (bytes: JsValue) -> Maybe<Transaction> {
+    pub(crate) fn tx (bytes: JsValue) -> Maybe<Transaction> {
         let bytes = required!("tx bytes: not string": bytes.as_string())?;
         let bytes = expected!("tx bytes: not base16": hex::decode(bytes.trim()))?;
         let tx    = expected!("tx bytes: not parsed": deserialize_tx(&bytes))?;
         Ok(tx)
     }
 
-    pub fn args (args: JsValue) -> Maybe<Arguments> {
+    pub(crate) fn args (args: JsValue) -> Maybe<Arguments> {
         if args.is_truthy() {
             if !args.is_object() {
                 return err!("args: must be object")
@@ -60,7 +77,7 @@ impl Input {
         Ok(Arguments::default())
     }
 
-    pub fn witness (wits: JsValue) -> Maybe<WitnessValues> {
+    pub(crate) fn witness (wits: JsValue) -> Maybe<WitnessValues> {
         if wits.is_truthy() {
             if !wits.is_object() { return err!("wits: must be object") }
             let wits = expected!("wits: failed to stringify": JSON::stringify(&wits))?;
@@ -69,7 +86,7 @@ impl Input {
         Ok(WitnessValues::default())
     }
 
-    pub fn find_utxo (tx: &Transaction, address: &Address) -> Maybe<(OutPoint, TxOut)> {
+    pub(crate) fn find_utxo (tx: &Transaction, address: &Address) -> Maybe<(OutPoint, TxOut)> {
         let mut previous: Option<OutPoint> = Default::default();
         let mut utxo:     Option<TxOut>    = Default::default();
         for (index, output) in tx.output.iter().enumerate() {
@@ -85,7 +102,7 @@ impl Input {
         Ok((required!(previous)?, required!(utxo)?))
     }
 
-    pub fn context (
+    pub(crate) fn context (
         options: &Object, from: &Address
     ) -> Maybe<(OutPoint, TxOut, AssetId, u64, u64, u64)> {
         asserted!(options.is_object());
@@ -102,19 +119,17 @@ impl Input {
 pub struct Output;
 
 impl Output {
-    pub fn vex_to_hex (vex: &[Vec<u8>]) -> String {
+    pub(crate) fn vex_to_hex (vex: &[Vec<u8>]) -> String {
         hex::encode(&vex.iter().flat_map(|x|x.iter()).cloned().collect::<Vec<_>>())
     }
 
-    pub fn opt_to_str <D: std::fmt::Display> (opt: &Option<D>) -> Option<String> {
+    pub(crate) fn opt_to_str <D: std::fmt::Display> (opt: &Option<D>) -> Option<String> {
         opt.as_ref().map(|x|format!("{x}"))
     }
 
-    pub fn program (program: &Program) -> Maybe<Object> {
+    pub(crate) fn program (program: &Program) -> Maybe<Object> {
         Ok(obj! {
             "source" = program.source.to_string(),
-            "debug"  = program.debug,
-            "prune"  = program.prune,
             "args"   = serde_json::to_string(&program.args)?,
             "cmr"    = hex::encode(program.commit.cmr().to_byte_array()),
             "ihr"    = program.commit.ihr().map(|ihr|hex::encode(ihr.to_byte_array())),
@@ -123,14 +138,14 @@ impl Output {
         })
     }
 
-    pub fn u8a (bytes: &[u8]) -> Uint8Array {
+    pub(crate) fn u8a (bytes: &[u8]) -> Uint8Array {
         let u8a = Uint8Array::new_with_length(bytes.len() as u32);
         u8a.copy_from(bytes);
         u8a
     }
 
     /// Wrap transaction info returned to JS-land.
-    pub fn tx (tx: &Transaction) -> Maybe<Object> {
+    pub(crate) fn tx (tx: &Transaction) -> Maybe<Object> {
         let bytes = tx.serialize();
         Ok(obj! {
             "bytes" = Output::u8a(&bytes),

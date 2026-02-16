@@ -1,9 +1,13 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
-export const cmr_to_p2tr: (a: any) => [number, number, number];
+export const cmr_to_p2tr: (a: any, b: any) => [number, number, number];
+export const __wbg_keypair_free: (a: number, b: number) => void;
 export const __wbg_program_free: (a: number, b: number) => void;
 export const compile: (a: any, b: any) => [number, number, number];
+export const keypair: (a: any) => [number, number, number];
+export const keypair_signSchnorr: (a: number, b: any) => any;
+export const keypair_xOnlyPublicKey: (a: number) => any;
 export const program_commitTx: (a: number, b: any) => [number, number, number];
 export const program_redeemSighash: (a: number, b: any) => [number, number, number, number];
 export const program_redeemTx: (a: number, b: any) => [number, number, number];
@@ -20,9 +24,9 @@ export const rustsecp256k1_v0_10_0_default_error_callback_fn: (a: number, b: num
 export const rustsecp256k1_v0_10_0_default_illegal_callback_fn: (a: number, b: number) => void;
 export const __wbindgen_malloc: (a: number, b: number) => number;
 export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
-export const __wbindgen_free: (a: number, b: number, c: number) => void;
 export const __wbindgen_exn_store: (a: number) => void;
 export const __externref_table_alloc: () => number;
 export const __wbindgen_externrefs: WebAssembly.Table;
+export const __wbindgen_free: (a: number, b: number, c: number) => void;
 export const __externref_table_dealloc: (a: number) => void;
 export const __wbindgen_start: () => void;
