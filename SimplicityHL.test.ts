@@ -1,7 +1,7 @@
 #!/usr/bin/env -S deno run --allow-read --allow-env --allow-run --allow-write=/tmp/fadroma --allow-import=cdn.skypack.dev:443,deno.land:443 --allow-net=127.0.0.1:8941,liquidtestnet.com:443,blockstream.info:443
 import Fn from '../../library/Fn.ts';
-import Btc from '../Bitcoin/Bitcoin.ts';
 import Test from '../../library/Test.ts';
+import Bitcoin from '../Bitcoin/Bitcoin.ts';
 import SimplicityHL from './SimplicityHL.ts';
 import { Base16 } from '../../library/Number.ts';
 import { p2wpkh } from 'npm:@scure/btc-signer';
@@ -24,47 +24,62 @@ const signSchnorr = (data: Uint8Array<ArrayBufferLike> = new Uint8Array()) => si
 export default Test(import.meta, 'SimplicityHL',
   // Check that the API entrypoints are present on the WASM module:
   Test('WASM', () => SimplicityHL.Wasm(),
-    Has('keypair',     Is('function')),
     Has('cmr_to_p2tr', Is('function')),
-    Has('compile',     Is('function'))),
+    Has('keypair', Is('function')),
+    Has('compile', Is('function'))),
+  // Test SimplicityHL on localnet.
+  TestSimplicityHL(Bitcoin.ElementsRegtest),
+  // TODO: Test SimplicityHL on remote testnet:
+  // TestSimplicityHL('liquidtestnet',  Bitcoin.LiquidTestnet),
+)
+/** Test SimplicityHL programs. */
+function TestSimplicityHL (Chain) {
   // Compile and deploy example programs:
-  Test('Deploy',
-    // Start by spawning a localnet:
-    () => Btc.ElementsRegtest(),
+  return Test(Chain.ID,
+
+    // Spawn localnet/connect to testnet.
+    () => Chain(),
+
+    // FIXME: These steps don't apply on remote testnet,
+    // and can just be moved to localnet constructor options.
+
     // Optionally, pipe the localnet's output to stderr:
-    Btc.Verbose(true),
+    Bitcoin.Verbose(true),
     // Create test wallet, which is first seen as empty:
-    Btc.CreateWallet('test-simf', testHasBalance({ bitcoin: 0 })),
+    Bitcoin.CreateWallet('test-simf', testHasBalance({ bitcoin: 0 })),
     // But, after rescan, turns out to not be empty - it contains default balances:
-    Btc.Rescan(testHasBalance({ [Btc.ElementsRegtest.REISSUE]: 1,
-      bitcoin: Number(Btc.ElementsRegtest.INITIAL.COINS / Btc.ElementsRegtest.DECIMAL) })),
+    Bitcoin.Rescan(testHasBalance({
+      [Chain.REISSUE]: 1,
+      bitcoin: Number(Chain.INITIAL_COINS / Bitcoin.DECIMAL)
+    })),
+
+    // FIXME: Some of the values won't apply on remote testnet:
     // And now we can test the included example programs:
     // - empty program, always runs
     Example(true,  "unit program",       2.4e-7,
       'c40a10263f7436b4160acbef1c36fba4be4d95df181a968afeab5eac247adff7',
-      'tex1p9jcvyzkdwdqtf49kta4xpc5g35xkfcexwfsl8v70w2gwttelncyshxjk56',
+      'ert1p9jcvyzkdwdqtf49kta4xpc5g35xkfcexwfsl8v70w2gwttelncyspjlnrz',
       'fn main () {}'),
     // - correct assertion, always runs
     Example(true,  "assert true",        2.7e-7,
-      '206e951b8c4e65032096bfa54ed287b804060f55db41d87edffcc566ab8728e8',
-      'tex1pa86g4lqqsll5p58qqjcauq0htfcgsvam6rv3ze2y07j8glg7smgska7ufk',
+      '633f62f67589423aafcd3ce0a4dc41f6192403c4aeb61997f438dbd7b96c5cf7',
+      'ert1per0vg2wvc4ua2rsndm8j6062r7z7ys7q6wcvwumepgz8t5m6hfhsrd8d8q',
       'fn main () { assert!(true) }'),
     // - incorrect assertion, always fails
     Example(false, "assert false fails", 2.7e-7,
-      'ec15fa538a70a3550cbc715ac1ee6efbeb4df2ef84abc37fd15b3981019ed88f',
-      'tex1pnjn54t0dd9d57n59vnuhvstfdnzcc72zl6dn4lgw0upc26ax0rnqp23aw0',
+      'd3c6b9ecfc2876ec72f0099c6f454b7b34645d08c1f220c05ae80e77eed4bdf3',
+      'ert1p7p4rgaw5dmhxt6qutf2v3rtuy6afghfgktmmedkpju5uamxdz5js3hdug9',
       'fn main () { assert!(false) }'),
     // - some jet calls
     Example(true,  "basic jets work",    2.7e-7,
-      '803f7bd1c19fd076f1f6272c266c6ec0f78a3186587a2b9ac64f5bb2c1df6d9c',
-      'tex1py88f4pa9g7wmenpa9xk6pv76psx8spptsedllaqavl9rj0xuvr9sk0gt2r',
+      'b8b3509f12177723609e3995101ff589e504361ce32ec4d417bba3b37bbb7fac',
+      'ert1pmy9edmq0yfrc477jvcc835umyajlgjsnyujplt8nppr45zrwl7qs02gj3x',
       `fn main () { let ab: u16 = <(u8, u8)>::into((0x10, 0x01));     assert!(jet::eq_16(ab, 0x1001));
                     let ab: u8  = <(u4, u4)>::into((0b1011, 0b1101)); assert!(jet::eq_8(ab, 0b10111101)); }`),
     // - witness signing
     Example(true,  "pay to pubkey",      2.7e-7,
-      //'be4ba2ae0c9559c7ec8f054f9b6336648f51658fd41a37db9ebc5b22f3b62713',
-      '0b771386a2ee6f0cfb296b0656a98431b77be650ea1eb0f7beb05894fe9bba87',
-      'tex1p53f33nnjed42the73v3y2hgdgmhq98fh3d5r05u23fjwc0xyp9fqzn6ulg',
+      'b1b4447ce3082324635798876f1ae6c9aec9a228eb6e21e3cb991f8970986965',
+      'ert1ppe00tyu7xnl96056wpth5fhas3hesnehglzstluxn77fe9xx2atsaqwx5h',
       `fn main () { jet::bip_0340_verify((param::PK, jet::sig_all_hash()), witness::SIG) }`,
       () => ({ PK: SimplicityHL.Arg.Pubkey(KEYPAIR.xOnlyPublicKey()) }),
       (sighash: Uint8Array) => ({ SIG: SimplicityHL.Arg.Signature(KEYPAIR.signSchnorr(sighash)), })),
@@ -83,7 +98,8 @@ export default Test(import.meta, 'SimplicityHL',
     // - multisig: TODO
     
     // Shutdown the localnet.
-    (btc: Btc) => btc.kill(9)));
+    (btc: Bitcoin) => btc.kill(9));
+}
 /** Define example program. */
 function Example (
   /** Is the example expected to work? */
@@ -106,7 +122,7 @@ function Example (
   const fail = !pass
   const meta = { name, cost, cmr, p2tr, src, fail, wits };
   return Fn.Name(`${name} (${p2tr||'unspecified P2TR'})`, testExample, meta)
-  async function testExample ({ rpc, rest }: Btc) {
+  async function testExample ({ rpc, rest }: Bitcoin) {
 
     // Compile the program.
     const prog = await SimplicityHL(src, { args: args ? await args() : undefined });
@@ -120,7 +136,7 @@ function Example (
     const tx = testSplitTx(await rest.tx(id), p2tr, 1, cost).hex;
 
     // Create local spender wallet and import it to RPC:
-    const network = { bech32: 'tex', pubKeyHash: 0x6f, scriptHash: 0xc4, wif: 0xef, };
+    const network = { bech32: 'ert', pubKeyHash: 0x6f, scriptHash: 0xc4, wif: 0xef, };
     const { address: user } = p2wpkh(PUB_ECDSA, network);
     await rpc.importaddress(user);
 
@@ -169,11 +185,11 @@ function testSplitTx (
 ) {
   equal(tx.vout.length, 3);
   const hasVout   = (f: Fn, t: string) => equal(tx.vout.filter(f).length, 1, `post deploy: ${t}`);
-  const isBalance = (x: Btc.Vout)=>((x.value===amount) && (x.scriptPubKey.address == p2tr));
-  const isFee     = (x: Btc.Vout)=>x.value===cost;
+  const isBalance = (x: Bitcoin.Vout)=>((x.value===amount) && (x.scriptPubKey.address == p2tr));
+  const isFee     = (x: Bitcoin.Vout)=>x.value===cost;
   hasVout(isBalance, `balance: program ${p2tr} must receive ${amount}`);
   hasVout(isFee,     `fee: deploy fee must be ${cost}`);
-  //hasVout((x: Btc.Vout)=>x.value===bitcoin, `remaining: must be ${bitcoin}`);
+  //hasVout((x: Bitcoin.Vout)=>x.value===bitcoin, `remaining: must be ${bitcoin}`);
   return tx
 }
 

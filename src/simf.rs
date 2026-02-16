@@ -62,9 +62,9 @@ use crate::*;
     /// Internal constructor.
     fn new (chain: &str, source: &str, args: Arguments) -> Maybe<Self> {
         let compiled = CompiledProgram::new(source, args.clone(), true);
-        let source = source.into();
         let compiled = expected_display!("compile failed": compiled)?;
         let commit = compiled.commit();
+        let source = source.into();
         let script = Script::from(commit.cmr().to_byte_array().to_vec());
         let tap = script_to_taproot(script.clone())?;
         let p2tr = Address::p2tr(
