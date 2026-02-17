@@ -203,6 +203,11 @@ type Maybe<T> = Result<T, JsError>;
 
 #[wasm_bindgen] impl Program {
 
+    #[wasm_bindgen(js_name = toJSON)]
+    pub fn to_json (&self) -> Object {
+        ret_program(&self).unwrap_or_else(|e|JsValue::from(e).into())
+    }
+
     /// Partially-signed redeem transaction without witnesses.
     /// For extremely manual signing.
     #[wasm_bindgen(js_name = redeemPsbt)]
@@ -311,11 +316,6 @@ type Maybe<T> = Result<T, JsError>;
         }))
     }
 
-    /// Use this in JS to get the properties of the compiled program.
-    #[wasm_bindgen(js_name = toJSON)]
-    pub fn to_json (&self) -> Object {
-        ret_program(&self).unwrap_or_else(|e|JsValue::from(e).into())
-    }
 }
 
 /// BIP-0341's NUMS key (magic unspendable key).

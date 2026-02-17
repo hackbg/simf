@@ -1,12 +1,11 @@
 #!/usr/bin/env -S deno run --allow-read --allow-env --allow-run --allow-write=/tmp/fadroma --allow-import=cdn.skypack.dev:443,deno.land:443 --allow-net=127.0.0.1:8941,liquidtestnet.com:443,blockstream.info:443
-import Fn from '../../library/Fn.ts';
-import Test from '../../library/Test.ts';
-import Bitcoin from '../Bitcoin/Bitcoin.ts';
-import SimplicityHL from './SimplicityHL.ts';
-import { Base16 } from '../../library/Number.ts';
-import { p2wpkh } from 'npm:@scure/btc-signer';
-import { pubECDSA, pubSchnorr, signSchnorr } from 'npm:@scure/btc-signer/utils.js';
 import { deepStrictEqual as equal, rejects } from 'node:assert';
+import { p2wpkh } from 'npm:@scure/btc-signer';
+import { pubECDSA } from 'npm:@scure/btc-signer/utils.js';
+import SimplicityHL from './SimplicityHL.ts';
+import Bitcoin from '../Bitcoin/Bitcoin.ts';
+import Test from '../../library/Test.ts';
+import Fn from '../../library/Fn.ts';
 const { is: Is, has: Has } = Test;
 /** Non-private key. */
 const SECRET = new Uint8Array(Array(32).fill(1));
@@ -14,12 +13,6 @@ const SECRET = new Uint8Array(Array(32).fill(1));
 const KEYPAIR = await SimplicityHL.Keypair(SECRET);
 /** Public key for ECDSA (transactions). */
 const PUB_ECDSA = pubECDSA(SECRET);
-/** Sign (ECDSA) transaction with test private key. */
-const signEcdsa = (data: Uint8Array<ArrayBufferLike> = new Uint8Array()) => signSchnorr(data, SECRET);
-/** Public key for Schnorr (witnesses). */
-const PUB_SCHNORR = pubSchnorr(SECRET);
-/** Sign (Schnorr) witness data with test private key. */
-const signSchnorr = (data: Uint8Array<ArrayBufferLike> = new Uint8Array()) => signSchnorr(data, SECRET);
 /** Test the SimplicityHL support in Fadroma. */
 export default Test(import.meta, 'SimplicityHL',
   // Check that the API entrypoints are present on the WASM module:
@@ -33,25 +26,22 @@ export default Test(import.meta, 'SimplicityHL',
 )
 /** Test SimplicityHL programs. */
 function TestSimplicityHL (Chain) {
-  let genesis = null;
+  // Genesis hash is needed to redeem with witness
+  let genesis: string|null = null;
+  // Balance at wallet creation
   const initial0 = { bitcoin: 0 };
+  // Initial balance after rescan
   const initial1 = { [Chain.REISSUE]: 1, bitcoin: Number(Chain.INITIAL_COINS / Bitcoin.DECIMAL) };
   // Compile and deploy example programs:
   return Test(Chain.ID, () => Chain(),
 
     // FIXME: These steps don't apply on remote testnet,
     // and can just be moved to localnet constructor options.
-
-    // Optionally, pipe the localnet's output to stderr:
-    Bitcoin.Verbose(true),
-    // Create test wallet, which is first seen as empty:
+    Bitcoin.Verbose(true), // Pipe the localnet's output to stderr
     Bitcoin.CreateWallet('test-simf', testHasBalance(initial0)),
-    // But, after rescan, turns out to not be empty - it contains default balances:
     Bitcoin.Rescan(testHasBalance(initial1)),
-
     async function fetchGenesisHash (context) {
       genesis = await context.rpc.getblockhash(0);
-      console.log({genesis});
       return context
     },
 
@@ -62,22 +52,26 @@ function TestSimplicityHL (Chain) {
       'c40a10263f7436b4160acbef1c36fba4be4d95df181a968afeab5eac247adff7',
       'ert1p9jcvyzkdwdqtf49kta4xpc5g35xkfcexwfsl8v70w2gwttelncyspjlnrz',
       'fn main () {}'),
+
     // - correct assertion, always runs
     Example(true,  "assert true",        2.7e-7,
       '633f62f67589423aafcd3ce0a4dc41f6192403c4aeb61997f438dbd7b96c5cf7',
       'ert1per0vg2wvc4ua2rsndm8j6062r7z7ys7q6wcvwumepgz8t5m6hfhsrd8d8q',
       'fn main () { assert!(true) }'),
+
     // - incorrect assertion, always fails
     Example(false, "assert false fails", 2.7e-7,
       'd3c6b9ecfc2876ec72f0099c6f454b7b34645d08c1f220c05ae80e77eed4bdf3',
       'ert1p7p4rgaw5dmhxt6qutf2v3rtuy6afghfgktmmedkpju5uamxdz5js3hdug9',
       'fn main () { assert!(false) }'),
+
     // - some jet calls
     Example(true,  "basic jets work",    2.7e-7,
       'b8b3509f12177723609e3995101ff589e504361ce32ec4d417bba3b37bbb7fac',
       'ert1pmy9edmq0yfrc477jvcc835umyajlgjsnyujplt8nppr45zrwl7qs02gj3x',
       `fn main () { let ab: u16 = <(u8, u8)>::into((0x10, 0x01));     assert!(jet::eq_16(ab, 0x1001));
                     let ab: u8  = <(u4, u4)>::into((0b1011, 0b1101)); assert!(jet::eq_8(ab, 0b10111101)); }`),
+
     // - witness signing
     Example(true,  "pay to pubkey",      2.7e-7,
       'b1b4447ce3082324635798876f1ae6c9aec9a228eb6e21e3cb991f8970986965',
@@ -85,6 +79,7 @@ function TestSimplicityHL (Chain) {
       `fn main () { jet::bip_0340_verify((param::PK, jet::sig_all_hash()), witness::SIG) }`,
       () => ({ PK: SimplicityHL.Arg.Pubkey(KEYPAIR.xOnlyPublicKey()) }),
       (sighash: Uint8Array) => ({ SIG: SimplicityHL.Arg.Signature(KEYPAIR.signSchnorr(sighash)), })),
+
     // - more complex signing
     Example(true,  "pay to pubkey hash", 2.7e-7,
       'e65e19e139a13583a0a7efb24be13c20d578f06f51b2a7fe7c7b9097072dbabe',
@@ -97,6 +92,7 @@ function TestSimplicityHL (Chain) {
       () => ({ PKH: SimplicityHL.Arg.Pubkey(KEYPAIR.xOnlyPublicKey()) /*FIXME hashit*/ }),
       (sighash: Uint8Array) => ({ SIG: SimplicityHL.Arg.Signature(KEYPAIR.signSchnorr(sighash))
                                 , PUB: SimplicityHL.Arg.Pubkey(KEYPAIR.xOnlyPublicKey()), })),
+
     // - multisig: TODO
     
     // Shutdown the localnet.
@@ -119,7 +115,7 @@ function TestSimplicityHL (Chain) {
     /** Function that provides parameter data. */
     args?: Fn.Returns<Fn.Async<SimplicityHL.Args>>,
     /** Function that provides witness data. */
-    wits?: Fn<[Uint8Array], Fn.Async<object>>,
+    wits?: Fn<[Uint8Array<ArrayBufferLike>], Fn.Async<object>>,
   ) {
     const fail = !pass
     const meta = { name, cost, cmr, p2tr, src, fail, wits };
