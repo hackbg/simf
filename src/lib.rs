@@ -64,7 +64,7 @@ macro_rules! expected(($msg:literal: $expr:expr) => {
 });
 
 /// Map `Err` to detailed friendly [JsError] if it implements [Debug].
-macro_rules! expected_debug(($msg:literal: $expr:expr) => {
+#[allow(unused)] macro_rules! expected_debug(($msg:literal: $expr:expr) => {
     $expr.map_err(|e|JsError::new(&format!("failed: {}: {:?}", $msg, e)))
 });
 
@@ -156,7 +156,7 @@ type Maybe<T> = Result<T, JsError>;
 #[wasm_bindgen] pub fn compiler (options: JsValue) -> Maybe<Compiler> {
     Ok(Compiler {
         genesis: Arc::new(
-             BlockHash::from_str(&get!(options, "genesis", Input::string)?)?
+             BlockHash::from_str(&get!(options, "genesis", arg_string)?)?
         ),
         chain: get!(options, "chain", |input|if JsString::is_type_of(&input) {
             Ok(input.as_string().unwrap())
@@ -179,7 +179,7 @@ type Maybe<T> = Result<T, JsError>;
         let source = source.as_string().unwrap_or_default();
         let mut args = Arguments::default();
         if options.is_object() {
-            args = get!(options, "args", Input::args)?;
+            args = get!(options, "args", arg_args)?;
         }
         Ok(Program {
             genesis: self.genesis.clone(),
@@ -215,17 +215,21 @@ type Maybe<T> = Result<T, JsError>;
     }
 
     fn redeem_psbt_utxo (&self, options: &JsValue) -> Maybe<(PartiallySignedTransaction, TxOut)> {
-        let previous  = get!(options, "previous",  Input::tx)?;
-        let recipient = get!(options, "recipient", Input::address)?;
-        let amount    = get!(options, "amount",    Input::sats)?;
-        let fee       = get!(options, "fee",       Input::sats)?;
-        let (previous_output, utxo) = Input::find_utxo(&previous, &self.p2tr()?)?;
+        let previous  = get!(options, "previous",  arg_tx)?;
+        let recipient = get!(options, "recipient", arg_address)?;
+        let amount    = get!(options, "amount",    arg_sats)?;
+        let fee       = get!(options, "fee",       arg_sats)?;
+        let (previous_output, utxo) = self.utxo(&previous)?;
         let asset = utxo.asset.explicit().unwrap();
         let in_0  = tx_input(previous_output);
         let out_0 = tx_output(asset, recipient, amount);
         let out_1 = elements::TxOut::new_fee(fee, asset);
         let psbt  = PartiallySignedTransaction::from_tx(transaction(vec![in_0], vec![out_0, out_1]));
         Ok((psbt, utxo))
+    }
+
+    fn utxo (&self, previous: &Transaction) -> Maybe<(OutPoint, TxOut)> {
+        find_utxo(&previous, &self.p2tr()?)
     }
 
     /// SIGHASH_ALL of redeem transaction.
@@ -244,10 +248,9 @@ type Maybe<T> = Result<T, JsError>;
     /// Broadcast it to redeem funds.
     #[wasm_bindgen(js_name = redeemTx)]
     pub fn redeem_tx (&self, options: JsValue) -> Maybe<Object> {
-        let wit = get!(options, "witness", Input::witness)?;
+        let wit = get!(options, "witness", arg_witness)?;
         let (mut psbt, utxo) = self.redeem_psbt_utxo(&options)?;
         let env = self.env(&psbt, vec![ElementsUtxo::from(utxo)])?;
-        let all = env.c_tx_env().sighash_all().to_byte_array();
         let sat = expected!("satisfy": self.compiled.satisfy_with_env(wit, Some(&env)))?;
         let (program_bytes, witness_bytes) = sat.redeem().encode_to_vec();
         psbt.inputs_mut()[0].final_script_witness = Some(vec![
@@ -257,7 +260,7 @@ type Maybe<T> = Result<T, JsError>;
             self.control_block()?.serialize(),
         ]);
         let tx = expected!("extract final tx:": psbt.extract_tx())?;
-        Output::tx(&tx)
+        ret_tx(&tx)
     }
 
     fn env (&self, psbt: &PartiallySignedTransaction, ins: Vec<ElementsUtxo>) -> Maybe<Env> {
@@ -311,7 +314,7 @@ type Maybe<T> = Result<T, JsError>;
     /// Use this in JS to get the properties of the compiled program.
     #[wasm_bindgen(js_name = toJSON)]
     pub fn to_json (&self) -> Object {
-        Output::program(&self).unwrap_or_else(|e|JsValue::from(e).into())
+        ret_program(&self).unwrap_or_else(|e|JsValue::from(e).into())
     }
 }
 
@@ -353,165 +356,102 @@ fn tx_output (asset_id: AssetId, recipient: Address, value: u64) -> TxOut {
     }
 }
 
-struct Input;
+fn arg_address (x: JsValue) -> Maybe<Address> {
+    let address = required!("addr: not string": x.as_string())?;
+    let address = expected!("addr: not parsed": Address::from_str(&address))?;
+    Ok(address)
+}
 
-impl Input {
+fn arg_tx (bytes: JsValue) -> Maybe<Transaction> {
+    let bytes = required!("tx bytes: not string": bytes.as_string())?;
+    let bytes = expected!("tx bytes: not base16": hex::decode(bytes.trim()))?;
+    let tx    = expected!("tx bytes: not parsed": deserialize_tx(&bytes))?;
+    Ok(tx)
+}
 
-    fn flag (x: JsValue) -> bool {
-        x.is_truthy()
-    }
-
-    fn address (x: JsValue) -> Maybe<Address> {
-        let address = required!("addr: not string": x.as_string())?;
-        let address = expected!("addr: not parsed": Address::from_str(&address))?;
-        Ok(address)
-    }
-
-    fn tx (bytes: JsValue) -> Maybe<Transaction> {
-        let bytes = required!("tx bytes: not string": bytes.as_string())?;
-        let bytes = expected!("tx bytes: not base16": hex::decode(bytes.trim()))?;
-        let tx    = expected!("tx bytes: not parsed": deserialize_tx(&bytes))?;
-        Ok(tx)
-    }
-
-    fn string (input: JsValue) -> Maybe<String> {
-        if JsString::is_type_of(&input) {
-            required!("decode input": input.as_string())
-        } else {
-            err!("invalid chain: {input:?}; try elementsregtest, liqudtestnet")
-        }
-    }
-
-    fn chain (input: JsValue) -> Maybe<AddressParams> {
-        if JsString::is_type_of(&input) {
-            Self::chain_str(required!("decode input": input.as_string())?.as_str())
-        } else {
-            err!("invalid chain: {input:?}; try elementsregtest, liqudtestnet")
-        }
-    }
-    
-    fn chain_str (input: &str) -> Maybe<AddressParams> {
-        Ok(match input {
-            "liquidtestnet"   => AddressParams::LIQUID_TESTNET,
-            "elementsregtest" => AddressParams::ELEMENTS,
-            _ => return err!("invalid chain: {input}; try elementsregtest, liqudtestnet")
-        })
-    }
-
-    fn sats (input: JsValue) -> Maybe<u64> {
-        if BigInt::is_type_of(&input) {
-            expected!("bigint->u64": u64::try_from(input))
-        } else if Number::is_type_of(&input) {
-            warn!("number->u64: *10^8, use bigint to avoid precision issues");
-            expected!("number->u64": f64::try_from(input).map(|x|(x * 100000000.0) as u64))
-        } else if JsString::is_type_of(&input) {
-            warn!("string->u64: use bigint to avoid typing issues");
-            expected!("string->u64": u64::try_from(input))
-        } else {
-            return err!("received {:?}: need integer", input.js_typeof())
-        }
-    }
-
-    /// Accepts either [Uint8Array] or hex string.
-    fn bytes (input: JsValue) -> Maybe<Vec<u8>> {
-        if Uint8Array::instanceof(&input) { 
-            Ok(Uint8Array::unchecked_from_js(input).to_vec())
-        } else if JsString::is_type_of(&input) {
-            expected!("decode input": hex::decode(&required!(input.as_string())?))
-        } else {
-            return err!("need Uint8Array or hex string")
-        }
-    }
-
-    fn args (args: JsValue) -> Maybe<Arguments> {
-        if args.is_truthy() {
-            if !args.is_object() {
-                return err!("args: must be object")
-            }
-            if let Some(s) = JSON::stringify(&args)
-                .map_err(|e|JsError::new(&format!("failed to stringify args: {e:?}")))?
-                .as_string()
-            {
-                return Ok(serde_json::from_str(&s)?);
-            }
-        }
-        Ok(Arguments::default())
-    }
-
-    fn witness (wits: JsValue) -> Maybe<WitnessValues> {
-        if wits.is_truthy() {
-            if !wits.is_object() { return err!("wits: must be object") }
-            let wits = expected!("wits: failed to stringify": JSON::stringify(&wits))?;
-            if let Some(s) = wits.as_string() { return Ok(serde_json::from_str(&s)?); }
-        }
-        Ok(WitnessValues::default())
-    }
-
-    fn find_utxo (tx: &Transaction, address: &Address) -> Maybe<(OutPoint, TxOut)> {
-        let mut previous: Option<OutPoint> = Default::default();
-        let mut utxo:     Option<TxOut>    = Default::default();
-        for (index, output) in tx.output.iter().enumerate() {
-            //debug!("\nindex={index}\n  output={output:?}\n  value={:?}", &output.value);
-            //debug!("  {address:?} {:?} {:?}", &output.script_pubkey, &address.script_pubkey());
-            if output.script_pubkey == address.script_pubkey() {
-                //debug!("  using utxo #{index}");
-                previous = Some(OutPoint::new(tx.txid(), index as u32));
-                utxo     = Some(output.clone());
-                break;
-            }
-        }
-        Ok((required!(previous)?, required!(utxo)?))
-    }
-
-    fn context (
-        options: &Object, from: &Address
-    ) -> Maybe<(OutPoint, TxOut, AssetId, u64, u64, u64)> {
-        asserted!(options.is_object());
-        let tx_in  = get!(options, "tx",     Input::tx)?;
-        let amount = get!(options, "amount", Input::sats)?;
-        let fee    = get!(options, "fee",    Input::sats)?;
-        let (previous_output, utxo) = Input::find_utxo(&tx_in, &from)?;
-        let asset_id = required!("utxo: asset cloaked": utxo.asset.explicit())?;
-        let balance  = required!("utxo: value cloaked": utxo.value.explicit())?;
-        Ok((previous_output, utxo, asset_id, balance, amount, fee))
+fn arg_string (input: JsValue) -> Maybe<String> {
+    if JsString::is_type_of(&input) {
+        required!("decode input": input.as_string())
+    } else {
+        err!("invalid chain: {input:?}; try elementsregtest, liqudtestnet")
     }
 }
 
-struct Output;
-
-impl Output {
-
-    fn vex_to_hex (vex: &[Vec<u8>]) -> String {
-        hex::encode(&vex.iter().flat_map(|x|x.iter()).cloned().collect::<Vec<_>>())
+fn arg_sats (input: JsValue) -> Maybe<u64> {
+    if BigInt::is_type_of(&input) {
+        expected!("bigint->u64": u64::try_from(input))
+    } else if Number::is_type_of(&input) {
+        warn!("number->u64: *10^8, use bigint to avoid precision issues");
+        expected!("number->u64": f64::try_from(input).map(|x|(x * 100000000.0) as u64))
+    } else if JsString::is_type_of(&input) {
+        warn!("string->u64: use bigint to avoid typing issues");
+        expected!("string->u64": u64::try_from(input))
+    } else {
+        return err!("received {:?}: need integer", input.js_typeof())
     }
+}
 
-    fn opt_to_str <D: std::fmt::Display> (opt: &Option<D>) -> Option<String> {
-        opt.as_ref().map(|x|format!("{x}"))
+fn arg_args (args: JsValue) -> Maybe<Arguments> {
+    if args.is_truthy() {
+        if !args.is_object() {
+            return err!("args: must be object")
+        }
+        if let Some(s) = JSON::stringify(&args)
+            .map_err(|e|JsError::new(&format!("failed to stringify args: {e:?}")))?
+            .as_string()
+        {
+            return Ok(serde_json::from_str(&s)?);
+        }
     }
+    Ok(Arguments::default())
+}
 
-    fn program (program: &Program) -> Maybe<Object> {
-        Ok(obj! {
-            "chain"  = program.chain.to_string(),
-            "source" = program.source.to_string(),
-            "args"   = serde_json::to_string(&program.args)?,
-            "p2tr"   = program.p2tr()?.to_string(),
-        })
+fn arg_witness (wits: JsValue) -> Maybe<WitnessValues> {
+    if wits.is_truthy() {
+        if !wits.is_object() { return err!("wits: must be object") }
+        let wits = expected!("wits: failed to stringify": JSON::stringify(&wits))?;
+        if let Some(s) = wits.as_string() { return Ok(serde_json::from_str(&s)?); }
     }
+    Ok(WitnessValues::default())
+}
 
-    fn u8a (bytes: &[u8]) -> Uint8Array {
-        let u8a = Uint8Array::new_with_length(bytes.len() as u32);
-        u8a.copy_from(bytes);
-        u8a
+fn find_utxo (tx: &Transaction, address: &Address) -> Maybe<(OutPoint, TxOut)> {
+    let mut previous: Option<OutPoint> = Default::default();
+    let mut utxo:     Option<TxOut>    = Default::default();
+    for (index, output) in tx.output.iter().enumerate() {
+        //debug!("\nindex={index}\n  output={output:?}\n  value={:?}", &output.value);
+        //debug!("  {address:?} {:?} {:?}", &output.script_pubkey, &address.script_pubkey());
+        if output.script_pubkey == address.script_pubkey() {
+            //debug!("  using utxo #{index}");
+            previous = Some(OutPoint::new(tx.txid(), index as u32));
+            utxo     = Some(output.clone());
+            break;
+        }
     }
+    Ok((required!(previous)?, required!(utxo)?))
+}
 
-    /// Wrap transaction info returned to JS-land.
-    fn tx (tx: &Transaction) -> Maybe<Object> {
-        let bytes = tx.serialize();
-        Ok(obj! {
-            "bytes" = Output::u8a(&bytes),
-            "hex"   = hex::encode(&bytes),
-            "tx"    = JSON::parse(serde_json::to_string(&tx)?.as_str()).expect("parse own tx"),
-        })
-    }
+fn ret_program (program: &Program) -> Maybe<Object> {
+    Ok(obj! {
+        "chain"  = program.chain.to_string(),
+        "source" = program.source.to_string(),
+        "args"   = serde_json::to_string(&program.args)?,
+        "p2tr"   = program.p2tr()?.to_string(),
+    })
+}
 
+fn ret_u8a (bytes: &[u8]) -> Uint8Array {
+    let u8a = Uint8Array::new_with_length(bytes.len() as u32);
+    u8a.copy_from(bytes);
+    u8a
+}
+
+/// Wrap transaction info returned to JS-land.
+fn ret_tx (tx: &Transaction) -> Maybe<Object> {
+    let bytes = tx.serialize();
+    Ok(obj! {
+        "bytes" = ret_u8a(&bytes),
+        "hex"   = hex::encode(&bytes),
+        "tx"    = JSON::parse(serde_json::to_string(&tx)?.as_str()).expect("parse own tx"),
+    })
 }
