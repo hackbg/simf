@@ -1,5 +1,3 @@
-import * as __wbg_star0 from 'env';
-
 let wasm;
 
 function addToExternrefTable0(obj) {
@@ -376,7 +374,6 @@ export class Program {
         return takeFromExternrefTable0(ret[0]);
     }
     /**
-     * Use this in JS to get the properties of the compiled program.
      * @returns {object}
      */
     toJSON() {
@@ -700,7 +697,6 @@ function __wbg_get_imports() {
         table.set(offset + 2, true);
         table.set(offset + 3, false);
     };
-    imports['env'] = __wbg_star0;
 
     return imports;
 }

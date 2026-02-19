@@ -3,6 +3,7 @@ use std::env;
 use std::path::Path;
 fn main() {
     println!("cargo:rerun-if-changed=deps/rust-simplicity/simplicity-sys/depend");
+    println!("cargo:rerun-if-changed=stub.c");
     println!("cargo::rustc-env=TARGET=wasm32-unknown-emscripten");
     let simplicity_path = Path::new("deps/rust-simplicity/simplicity-sys/depend/simplicity");
     let mut build = cc::Build::new();
@@ -40,6 +41,7 @@ fn main() {
         .file(Path::new("deps/rust-simplicity/simplicity-sys/depend/wrapper.c"))
         .file(Path::new("deps/rust-simplicity/simplicity-sys/depend/env.c"))
         .file(Path::new("deps/rust-simplicity/simplicity-sys/depend/jets_wrapper.c"))
+        .file(Path::new("stub.c"))
         .include(simplicity_path.join("include"));
     if cfg!(not(fuzzing)) {
         build.define("PRODUCTION", None);

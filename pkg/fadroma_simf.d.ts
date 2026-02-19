@@ -47,9 +47,6 @@ export class Program {
    * Sign this to provide witness data.
    */
   redeemSighash(options: any): Uint8Array;
-  /**
-   * Use this in JS to get the properties of the compiled program.
-   */
   toJSON(): object;
   /**
    * Signed redeem transaction.
