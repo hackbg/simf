@@ -161,9 +161,7 @@ export namespace Arg {
     return Fn.Name(type, function defineU256 (
       value: Uint8Array<ArrayBufferLike> = new Uint8Array(new Array(32).fill(0))
     ) {
-      const hex = '0x'+Base16.encode(value);
-      console.debug({ type, length: value.length, value, hex });
-      return { type, value: hex }
+      return { type, value: '0x'+Base16.encode(value) }
     });
   }
 }
@@ -190,12 +188,12 @@ function Commit (program: Program) {
     ...options
   }: Connection & Commit) {
     const tx = program.commitTx(options);
-    debug('COMMIT: INPUT:  ', tx.tx.input);
-    debug('COMMIT: OUTPUT: ', tx.tx.output);
-    const signed = await sign(tx.bytes);
-    debug('COMMIT: SIGNED:   ', Base16.encode(tx.bytes));
-    debug('COMMIT: SIGNED:   ', tx.hex);
-    debug('COMMIT: SIGNATURE:', signed);
+    //debug('\nCOMMIT: INPUT:  ', JSON.stringify(tx.tx.input));
+    //debug('\nCOMMIT: OUTPUT: ', JSON.stringify(tx.tx.output));
+    //const signed = await sign(tx.bytes);
+    //debug('\nCOMMIT: SIGNED:   ', JSON.stringify(Base16.encode(tx.bytes)));
+    //debug('\nCOMMIT: SIGNED:   ', JSON.stringify(tx.hex));
+    //debug('\nCOMMIT: SIGNATURE:', JSON.stringify(signed));
     return await rest.tx(await rpc!.sendrawtransaction(tx.hex));
   }
 }

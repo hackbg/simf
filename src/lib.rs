@@ -229,7 +229,7 @@ type Maybe<T> = Result<T, JsError>;
         let in_0  = tx_input(previous_output);
         let out_0 = tx_output(asset, recipient, amount);
         let out_1 = elements::TxOut::new_fee(fee, asset);
-        let psbt  = PartiallySignedTransaction::from_tx(transaction(vec![in_0], vec![out_0, out_1]));
+        let psbt = PartiallySignedTransaction::from_tx(transaction(vec![in_0], vec![out_0, out_1]));
         Ok((psbt, utxo))
     }
 

@@ -76,7 +76,7 @@ const PUBLIC = pubSchnorr(SECRET);
 // Compile the P2PK program by constructing a SimplicityHL program object:
 const program = await SimplicityHL(SOURCE, {
   // Provide public key as `param::PK` at compile time:
-  PK: SimplicityHL.Arg.Pubkey(PUBLIC)
+  args: { PK: SimplicityHL.Arg.Pubkey(PUBLIC) }
 });
 
 // The program descriptor, of type `SimplicityHL`, is WASM-backed but inspectable:
@@ -111,7 +111,7 @@ Here's some of what you will find in the `SimplicityHL` program descriptor:
 
 ### Commitment
 
-The **main output** of the compile call `await SimplicityHL('/*source*/', {/*args*/})` is
+The **main output** of the compile call `await SimplicityHL('/*source*/', {/*options*/})` is
 the **P2TR (Pay-to-Taproot) address** which corresponds to the **CMR (Commitment Merkle root)**
 of the compiled program.
 
