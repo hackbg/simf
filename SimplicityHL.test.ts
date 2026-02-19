@@ -1,11 +1,11 @@
 #!/usr/bin/env -S deno run --allow-read --allow-env --allow-run --allow-write=/tmp/fadroma --allow-import=cdn.skypack.dev:443,deno.land:443 --allow-net=127.0.0.1:8941,liquidtestnet.com:443,blockstream.info:443
-import { deepStrictEqual as equal, rejects } from 'node:assert';
-import { p2wpkh } from 'npm:@scure/btc-signer';
+import { p2wpkh }   from 'npm:@scure/btc-signer';
 import { pubECDSA } from 'npm:@scure/btc-signer/utils.js';
-import SimplicityHL from './SimplicityHL.ts';
-import Bitcoin from '../Bitcoin/Bitcoin.ts';
-import Test from '../../library/Test.ts';
-import Fn from '../../library/Fn.ts';
+import * as SimplicityHL from './SimplicityHL.ts';
+import Bitcoin      from '../Bitcoin/Bitcoin.ts';
+import Test         from '../../library/Test.ts';
+import Fn           from '../../library/Fn.ts';
+import { deepStrictEqual as equal, rejects } from 'node:assert';
 const { is: Is, has: Has } = Test;
 /** Non-private key. */
 const SECRET = new Uint8Array(Array(32).fill(1));
@@ -25,11 +25,9 @@ export default Test(import.meta, 'SimplicityHL',
   // TestSimplicityHL('liquidtestnet',  Bitcoin.LiquidTestnet),
 )
 /** Test SimplicityHL programs. */
-function TestSimplicityHL (Chain) {
+function TestSimplicityHL (Chain: typeof Bitcoin.ElementsRegtest) {
   // Genesis hash is needed to redeem with witness
   let genesis: string|null = null;
-  // Balance at wallet creation
-  const initial0 = { bitcoin: 0 };
   // Initial balance after rescan
   const initial1 = { [Chain.REISSUE]: 1, bitcoin: Number(Chain.INITIAL_COINS / Bitcoin.DECIMAL) };
   // Compile and deploy example programs:
@@ -37,8 +35,8 @@ function TestSimplicityHL (Chain) {
 
     // FIXME: These steps don't apply on remote testnet,
     // and can just be moved to localnet constructor options.
-    Bitcoin.Verbose(true), // Pipe the localnet's output to stderr
-    Bitcoin.CreateWallet('test-simf', testHasBalance(initial0)),
+    Bitcoin.Verbose(false), // Pipe the localnet's output to stderr
+    Bitcoin.CreateWallet('test-simf', testHasBalance({ bitcoin: 0 })),
     Bitcoin.Rescan(testHasBalance(initial1)),
     async function fetchGenesisHash (context) {
       genesis = await context.rpc.getblockhash(0);
@@ -69,8 +67,9 @@ function TestSimplicityHL (Chain) {
     Example(true,  "basic jets work",    2.7e-7,
       'b8b3509f12177723609e3995101ff589e504361ce32ec4d417bba3b37bbb7fac',
       'ert1pmy9edmq0yfrc477jvcc835umyajlgjsnyujplt8nppr45zrwl7qs02gj3x',
-      `fn main () { let ab: u16 = <(u8, u8)>::into((0x10, 0x01));     assert!(jet::eq_16(ab, 0x1001));
-                    let ab: u8  = <(u4, u4)>::into((0b1011, 0b1101)); assert!(jet::eq_8(ab, 0b10111101)); }`),
+      `fn main () {
+         let ab: u16 = <(u8, u8)>::into((0x10, 0x01));     assert!(jet::eq_16(ab, 0x1001));
+         let ab: u8  = <(u4, u4)>::into((0b1011, 0b1101)); assert!(jet::eq_8(ab, 0b10111101)); }`),
 
     // - witness signing
     Example(true,  "pay to pubkey",      2.7e-7,
@@ -78,20 +77,30 @@ function TestSimplicityHL (Chain) {
       'ert1ppe00tyu7xnl96056wpth5fhas3hesnehglzstluxn77fe9xx2atsaqwx5h',
       `fn main () { jet::bip_0340_verify((param::PK, jet::sig_all_hash()), witness::SIG) }`,
       () => ({ PK: SimplicityHL.Arg.Pubkey(KEYPAIR.xOnlyPublicKey()) }),
-      (sighash: Uint8Array) => ({ SIG: SimplicityHL.Arg.Signature(KEYPAIR.signSchnorr(sighash)), })),
+      (sighash: Uint8Array<ArrayBufferLike>) => ({
+        SIG: SimplicityHL.Arg.Signature(KEYPAIR.signSchnorr(sighash)),
+      })),
 
     // - more complex signing
     Example(true,  "pay to pubkey hash", 2.7e-7,
       'e65e19e139a13583a0a7efb24be13c20d578f06f51b2a7fe7c7b9097072dbabe',
-      'tex1p305439usq06f4maelan8txnxshktvayu9z5gnwu6zrrxm9vmlufqcshcuv',
-      `fn sha2 (string: u256) -> u256 { let hasher: Ctx8 = jet::sha_256_ctx_8_init();
-                                        let hasher: Ctx8 = jet::sha_256_ctx_8_add_32(hasher, string);
-                                        jet::sha_256_ctx_8_finalize(hasher) }
-       fn main () { assert!(jet::eq_256(sha2(witness::PUB), param::PKH));
-                    jet::bip_0340_verify((witness::PUB, jet::sig_all_hash()), witness::SIG) }`,
-      () => ({ PKH: SimplicityHL.Arg.Pubkey(KEYPAIR.xOnlyPublicKey()) /*FIXME hashit*/ }),
-      (sighash: Uint8Array) => ({ SIG: SimplicityHL.Arg.Signature(KEYPAIR.signSchnorr(sighash))
-                                , PUB: SimplicityHL.Arg.Pubkey(KEYPAIR.xOnlyPublicKey()), })),
+      'ert1psfhg3z9z6mjravcyysv84krhgg6wv8em0w7rpxcfac8nshkzy0tscparek',
+      `fn sha2 (string: u256) -> u256 {
+         let hasher: Ctx8 = jet::sha_256_ctx_8_init();
+         let hasher: Ctx8 = jet::sha_256_ctx_8_add_32(hasher, string);
+         jet::sha_256_ctx_8_finalize(hasher)
+      }
+       fn main () {
+         let pk: Pubkey = witness::PUB;
+         assert!(jet::eq_256(sha2(pk), param::PKH));
+         jet::bip_0340_verify((pk, jet::sig_all_hash()), witness::SIG) }`,
+      () => ({
+        PKH: SimplicityHL.Arg.Pubkey(KEYPAIR.xOnlyPublicKey()) /*FIXME hashit*/
+      }),
+      (sighash: Uint8Array<ArrayBufferLike>) => ({
+        SIG: SimplicityHL.Arg.Signature(KEYPAIR.signSchnorr(sighash)),
+        PUB: SimplicityHL.Arg.Pubkey(KEYPAIR.xOnlyPublicKey()),
+      })),
 
     // - multisig: TODO
     
@@ -124,7 +133,8 @@ function TestSimplicityHL (Chain) {
 
       // Compile the program.
       const opts = { genesis, chain: Chain.ID, args: args ? await args() : undefined }
-      const prog = await SimplicityHL(src, opts);
+      const prog = await SimplicityHL.Program(src, opts);
+      console.log(src);
 
       // Check against pre-defined CMR/P2TR.
       if (p2tr) equal(prog.p2tr, p2tr);
