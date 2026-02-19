@@ -1,17 +1,21 @@
 import Bitcoin         from '../Bitcoin/Bitcoin.ts';
 import Fn              from '../../library/Fn.ts';
-import WasmLoader      from '../../library/Wasm.ts';
-import process         from 'node:process';
 import { Log }         from '../../library/Log.ts';
 import { Num, Base16 } from '../../library/Number.ts';
+import process         from 'node:process';
 
 /** Load SimplicityHL WASM module. */
-export async function Wasm (
-  wasm = process.env['FADROMA_SIMF_WASM'] || import.meta.resolve('./pkg/fadroma_simf_bg.wasm'),
-  wrap = process.env['FADROMA_SIMF_WRAP'] || import.meta.resolve('./pkg/fadroma_simf.js'),
-) {
-  const { keypair, compiler } = await WasmLoader<Wasm>(wasm, wrap)();
-  return { wasm, wrap, keypair, compiler }
+export async function Wasm ({
+  wasm = process.env['FADROMA_SIMF_WASM'] || import.meta.resolve('./pkg/fadroma_simf_bg.wasm') as string|URL|object,
+  wrap = process.env['FADROMA_SIMF_WRAP'] || import.meta.resolve('./pkg/fadroma_simf.js')      as string|URL|WebAssembly.Module,
+  // You can replace this with w.g. `readFile` from `fs/promises`; or polyfill `globalThis.fetch`
+  fetch = globalThis.fetch
+} = {}) {
+  const conform = (x: string|URL) => new URL(x).toString();
+  if ((typeof wrap === 'string')||(wrap instanceof URL)) wrap = await import(conform(wrap));
+  if ((typeof wasm === 'string')||(wasm instanceof URL)) wasm = await fetch(conform(wasm));
+  await (wrap as { default (_: WebAssembly.Module): Promise<Wasm> }).default(wasm);
+  return wrap as Wasm;
 }
 
 /** API of internal WASM module. */
@@ -107,9 +111,9 @@ export async function Program (source: string, {
   genesis?: string
 } = {}): Promise<Program> {
   // Compilation is synchronous, but we have to wait for the WASM the first time (FIXME?)
-  const { compiler } = await Wasm();
+  const compiler = (await Wasm()).compiler({ chain, genesis });
   // Compile the program for the target chain, receiving a WASM descriptor.
-  const program = compiler({ chain, genesis }).compile(source, { args, chain }) as Program;
+  const program = compiler.compile(source, { args, chain }) as Program;
   // Inspect WASM program descriptor, receiving the P2TR.
   const fields = (program as unknown as { toJSON (): Program }).toJSON();
   // Deserialize args (FIXME? do this on the rust side)
