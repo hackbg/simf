@@ -1,4 +1,3 @@
-
   // TODO:
   /* https://github.com/BlockstreamResearch/SimplicityHL/blob/master/examples/escrow_with_delay.simf
    * https://docs.ivylang.org/bitcoin/language/ExampleContracts.html#escrowwithdelay */

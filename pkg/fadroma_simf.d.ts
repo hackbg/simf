@@ -76,6 +76,8 @@ export function compiler(options: any): Compiler;
  */
 export function keypair(secret: Uint8Array): Keypair;
 
+export function params(source: string): object;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
@@ -88,6 +90,7 @@ export interface InitOutput {
   readonly keypair: (a: any) => [number, number, number];
   readonly keypair_signSchnorr: (a: number, b: any) => any;
   readonly keypair_xOnlyPublicKey: (a: number) => any;
+  readonly params: (a: any) => [number, number, number];
   readonly program_parameterTypes: (a: number) => [number, number, number];
   readonly program_redeemPsbt: (a: number, b: any) => [number, number, number];
   readonly program_redeemSighash: (a: number, b: any) => [number, number, number];

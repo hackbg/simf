@@ -9,6 +9,7 @@ export const compiler_compile: (a: number, b: any, c: any) => [number, number, n
 export const keypair: (a: any) => [number, number, number];
 export const keypair_signSchnorr: (a: number, b: any) => any;
 export const keypair_xOnlyPublicKey: (a: number) => any;
+export const params: (a: any) => [number, number, number];
 export const program_parameterTypes: (a: number) => [number, number, number];
 export const program_redeemPsbt: (a: number, b: any) => [number, number, number];
 export const program_redeemSighash: (a: number, b: any) => [number, number, number];

@@ -27,6 +27,8 @@ export async function Wasm ({
 export interface Wasm {
   /** Create a Secp256k1 keypair. */
   keypair (secret: Uint8Array): Keypair;
+  /** Extract compile-time parameters from source. */
+  params (source: string): Record<string, string>;
   /** Create a SimplicityHL compiler. */
   compiler (options: {
     /** The chain we'll be compiling for. Output is chain-specific */

@@ -453,6 +453,18 @@ export function keypair(secret) {
     return Keypair.__wrap(ret[0]);
 }
 
+/**
+ * @param {string} source
+ * @returns {object}
+ */
+export function params(source) {
+    const ret = wasm.params(source);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
 const EXPECTED_RESPONSE_TYPES = new Set(['basic', 'cors', 'default']);
 
 async function __wbg_load(module, imports) {

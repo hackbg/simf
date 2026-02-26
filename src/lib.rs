@@ -172,6 +172,16 @@ type Maybe<T> = Result<T, JsError>;
     chain: Arc<str>,
 }
 
+#[wasm_bindgen] pub fn params (source: JsString) -> Maybe<Object> {
+    let source: Arc<str> = source.as_string().unwrap_or_default().into();
+    let template = expected_display!("parse error": TemplateProgram::new(source))?;
+    let result   = Object::new();
+    for (k, v) in template.parameters().iter() {
+        expected!("set": Reflect::set(&result, &format!("{k}").into(), &format!("{v}").into()))?;
+    }
+    Ok(result)
+}
+
 #[wasm_bindgen] impl Compiler {
 
     /// Compile a SimplicityHL [Program].
