@@ -12,7 +12,12 @@ export async function Wasm ({
   fetch = globalThis.fetch
 } = {}) {
   const conform = (x: string|URL) => new URL(x).toString();
-  if ((typeof wrap === 'string')||(wrap instanceof URL)) wrap = await import(conform(wrap));
+  if ((typeof wrap === 'string')||(wrap instanceof URL)) {
+    // Fetching the WASM wrapper module is configurable,
+    // and as such bypasses Vite's bundling. Make sure
+    // your content security policy (CSP) allows it:
+    wrap = await import(/* @vite-ignore */ conform(wrap));
+  }
   if ((typeof wasm === 'string')||(wasm instanceof URL)) wasm = await fetch(conform(wasm));
   await (wrap as { default (_: WebAssembly.Module): Promise<Wasm> }).default(wasm);
   return wrap as Wasm;
