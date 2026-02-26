@@ -43,10 +43,21 @@ export class Program {
    */
   redeemPsbt(options: any): any;
   /**
+   * Produce JSON dict of run-time parameter types.
+   */
+  witnessTypes(): object;
+  /**
    * SIGHASH_ALL of redeem transaction.
    * Sign this to provide witness data.
    */
   redeemSighash(options: any): Uint8Array;
+  /**
+   * Produce JSON dict of compile-time parameter types.
+   */
+  parameterTypes(): object;
+  /**
+   * Produce JSON description of program object.
+   */
   toJSON(): object;
   /**
    * Signed redeem transaction.
@@ -77,10 +88,12 @@ export interface InitOutput {
   readonly keypair: (a: any) => [number, number, number];
   readonly keypair_signSchnorr: (a: number, b: any) => any;
   readonly keypair_xOnlyPublicKey: (a: number) => any;
+  readonly program_parameterTypes: (a: number) => [number, number, number];
   readonly program_redeemPsbt: (a: number, b: any) => [number, number, number];
   readonly program_redeemSighash: (a: number, b: any) => [number, number, number];
   readonly program_redeemTx: (a: number, b: any) => [number, number, number];
   readonly program_toJSON: (a: number) => any;
+  readonly program_witnessTypes: (a: number) => [number, number, number];
   readonly rust_0_6_malloc: (a: number) => number;
   readonly rust_0_6_free: (a: number) => void;
   readonly rust_0_6_calloc: (a: number, b: number) => number;

@@ -46,61 +46,84 @@ function TestSimplicityHL (Chain: typeof Bitcoin.ElementsRegtest) {
     // FIXME: Some of the values won't apply on remote testnet:
     // And now we can test the included example programs:
     // - empty program, always runs
-    Example(true,  "unit program",       2.4e-7,
-      'c40a10263f7436b4160acbef1c36fba4be4d95df181a968afeab5eac247adff7',
-      'ert1p9jcvyzkdwdqtf49kta4xpc5g35xkfcexwfsl8v70w2gwttelncyspjlnrz',
-      'fn main () {}'),
+    Example("unit program", 'fn main () {}', {
+      fee: 2.4e-7,
+      cmr: 'c40a10263f7436b4160acbef1c36fba4be4d95df181a968afeab5eac247adff7',
+      p2tr: 'ert1p9jcvyzkdwdqtf49kta4xpc5g35xkfcexwfsl8v70w2gwttelncyspjlnrz',
+      paramTypes: {},
+      witnessTypes: {},
+    }),
 
     // - correct assertion, always runs
-    Example(true,  "assert true",        2.7e-7,
-      '633f62f67589423aafcd3ce0a4dc41f6192403c4aeb61997f438dbd7b96c5cf7',
-      'ert1per0vg2wvc4ua2rsndm8j6062r7z7ys7q6wcvwumepgz8t5m6hfhsrd8d8q',
-      'fn main () { assert!(true) }'),
+    Example("assert true", 'fn main () { assert!(true) }', {
+      fee: 2.7e-7,
+      cmr: '633f62f67589423aafcd3ce0a4dc41f6192403c4aeb61997f438dbd7b96c5cf7',
+      p2tr: 'ert1per0vg2wvc4ua2rsndm8j6062r7z7ys7q6wcvwumepgz8t5m6hfhsrd8d8q',
+      paramTypes: {},
+      witnessValues: {},
+    }),
 
     // - incorrect assertion, always fails
-    Example(false, "assert false fails", 2.7e-7,
-      'd3c6b9ecfc2876ec72f0099c6f454b7b34645d08c1f220c05ae80e77eed4bdf3',
-      'ert1p7p4rgaw5dmhxt6qutf2v3rtuy6afghfgktmmedkpju5uamxdz5js3hdug9',
-      'fn main () { assert!(false) }'),
+    Example("assert false fails", 'fn main () { assert!(false) }', {
+      shouldFail:    true,
+      fee: 2.7e-7,
+      cmr: 'd3c6b9ecfc2876ec72f0099c6f454b7b34645d08c1f220c05ae80e77eed4bdf3',
+      p2tr: 'ert1p7p4rgaw5dmhxt6qutf2v3rtuy6afghfgktmmedkpju5uamxdz5js3hdug9',
+      paramTypes: {},
+      witnessValues: {},
+    }),
 
     // - some jet calls
-    Example(true,  "basic jets work",    2.7e-7,
-      'b8b3509f12177723609e3995101ff589e504361ce32ec4d417bba3b37bbb7fac',
-      'ert1pmy9edmq0yfrc477jvcc835umyajlgjsnyujplt8nppr45zrwl7qs02gj3x',
-      `fn main () {
-         let ab: u16 = <(u8, u8)>::into((0x10, 0x01));     assert!(jet::eq_16(ab, 0x1001));
-         let ab: u8  = <(u4, u4)>::into((0b1011, 0b1101)); assert!(jet::eq_8(ab, 0b10111101)); }`),
+    Example("basic jets work", `fn main () {
+      let ab: u16 = <(u8, u8)>::into((0x10, 0x01));     assert!(jet::eq_16(ab, 0x1001));
+      let ab: u8  = <(u4, u4)>::into((0b1011, 0b1101)); assert!(jet::eq_8(ab, 0b10111101));
+    }`, {
+      fee: 2.7e-7,
+      cmr: 'b8b3509f12177723609e3995101ff589e504361ce32ec4d417bba3b37bbb7fac',
+      p2tr: 'ert1pmy9edmq0yfrc477jvcc835umyajlgjsnyujplt8nppr45zrwl7qs02gj3x',
+      paramTypes: {},
+      witnessValues: {},
+    }),
 
     // - witness signing
-    Example(true,  "pay to pubkey",      2.7e-7,
-      'b1b4447ce3082324635798876f1ae6c9aec9a228eb6e21e3cb991f8970986965',
-      'ert1ppe00tyu7xnl96056wpth5fhas3hesnehglzstluxn77fe9xx2atsaqwx5h',
-      `fn main () { jet::bip_0340_verify((param::PK, jet::sig_all_hash()), witness::SIG) }`,
-      () => ({ PK: SimplicityHL.Arg.Pubkey(KEYPAIR.xOnlyPublicKey()) }),
-      (sighash: Uint8Array<ArrayBufferLike>) => ({
+    Example("pay to pubkey", `fn main () {
+      jet::bip_0340_verify((param::PK, jet::sig_all_hash()), witness::SIG)
+    }`, {
+      fee: 2.7e-7,
+      cmr: 'b1b4447ce3082324635798876f1ae6c9aec9a228eb6e21e3cb991f8970986965',
+      p2tr: 'ert1ppe00tyu7xnl96056wpth5fhas3hesnehglzstluxn77fe9xx2atsaqwx5h',
+      paramTypes: { PK: "u256" },
+      witnessTypes: { SIG: "[u8; 64]" },
+      provideParams: () => ({ PK: SimplicityHL.Arg.Pubkey(KEYPAIR.xOnlyPublicKey()) }),
+      provideWitness: (sighash: Uint8Array<ArrayBufferLike>) => ({
         SIG: SimplicityHL.Arg.Signature(KEYPAIR.signSchnorr(sighash)),
-      })),
+      })
+    }),
 
     // - more complex signing
-    Example(true,  "pay to pubkey hash", 2.7e-7,
-      'e65e19e139a13583a0a7efb24be13c20d578f06f51b2a7fe7c7b9097072dbabe',
-      'ert1psfhg3z9z6mjravcyysv84krhgg6wv8em0w7rpxcfac8nshkzy0tscparek',
-      `fn sha2 (string: u256) -> u256 {
-         let hasher: Ctx8 = jet::sha_256_ctx_8_init();
-         let hasher: Ctx8 = jet::sha_256_ctx_8_add_32(hasher, string);
-         jet::sha_256_ctx_8_finalize(hasher)
-      }
-       fn main () {
-         let pk: Pubkey = witness::PUB;
-         assert!(jet::eq_256(sha2(pk), param::PKH));
-         jet::bip_0340_verify((pk, jet::sig_all_hash()), witness::SIG) }`,
-      () => ({
+    Example("pay to pubkey hash", `fn sha2 (string: u256) -> u256 {
+      let hasher: Ctx8 = jet::sha_256_ctx_8_init();
+      let hasher: Ctx8 = jet::sha_256_ctx_8_add_32(hasher, string);
+      jet::sha_256_ctx_8_finalize(hasher)
+    }
+    fn main () {
+      let pk: Pubkey = witness::PUB;
+      assert!(jet::eq_256(sha2(pk), param::PKH));
+      jet::bip_0340_verify((pk, jet::sig_all_hash()), witness::SIG)
+    }`, {
+      fee: 2.7e-7,
+      cmr: 'e65e19e139a13583a0a7efb24be13c20d578f06f51b2a7fe7c7b9097072dbabe',
+      p2tr: 'ert1psfhg3z9z6mjravcyysv84krhgg6wv8em0w7rpxcfac8nshkzy0tscparek',
+      paramTypes: { PKH: "u256" },
+      witnessTypes: { SIG: "[u8; 64]", PUB: "u256" },
+      provideParams: () => ({
         PKH: SimplicityHL.Arg.Pubkey(KEYPAIR.xOnlyPublicKey()) /*FIXME hashit*/
       }),
-      (sighash: Uint8Array<ArrayBufferLike>) => ({
+      provideWitness: (sighash: Uint8Array<ArrayBufferLike>) => ({
         SIG: SimplicityHL.Arg.Signature(KEYPAIR.signSchnorr(sighash)),
         PUB: SimplicityHL.Arg.Pubkey(KEYPAIR.xOnlyPublicKey()),
-      })),
+      }),
+    }),
 
     // - multisig: TODO
     
@@ -108,78 +131,62 @@ function TestSimplicityHL (Chain: typeof Bitcoin.ElementsRegtest) {
     (btc: Bitcoin) => btc.kill(9));
 
   /** Define example program. */
-  function Example (
-    /** Is the example expected to work? */
-    pass: boolean,
-    /** Human-readable identifier. */
-    name: string,
+  function Example (name: string, src: string, {
+    shouldFail = false as boolean,
     /** Expected deploy fee. */
-    cost: number,
+    fee            = null as null|number,
     /** Expected commitment Merkle root of program. */
-    cmr:  string,
+    cmr            = null as null|string,
     /** Expected pay-to-taproot address of program. */
-    p2tr: string,
-    /** Source code of program. */
-    src:  string,
+    p2tr           = null as null|string,
+    paramTypes     = {} as Record<string, string>,
+    witnessTypes   = {} as Record<string, string>,
     /** Function that provides parameter data. */
-    args?: Fn.Returns<Fn.Async<SimplicityHL.Args>>,
+    provideParams  = null as null|Fn.Returns<Fn.Async<SimplicityHL.Args>>,
     /** Function that provides witness data. */
-    wits?: Fn<[Uint8Array<ArrayBufferLike>], Fn.Async<object>>,
-  ) {
-    const fail = !pass
-    const meta = { name, cost, cmr, p2tr, src, fail, wits };
-    return Fn.Name(`${name} (${p2tr||'unspecified P2TR'})`, testExample, meta)
+    provideWitness = null as null|Fn<[Uint8Array<ArrayBufferLike>], Fn.Async<object>>,
+  } = {}) {
+    const fail = shouldFail;
+    const cost = fee;
+    return Fn.Name(`${name} (${p2tr||'unspecified P2TR'})`, testExample, {
+      shouldFail, name, src, cost, cmr, p2tr, paramTypes, witnessTypes,
+      provideParams,
+      provideWitness,
+    })
     async function testExample ({ rpc, rest }: Bitcoin) {
-
       // Compile the program.
-      const opts = { genesis, chain: Chain.ID, args: args ? await args() : undefined }
-      const prog = await SimplicityHL.Program(src, opts);
-      console.log(src);
-
+      const prog = await SimplicityHL.Program(src, {
+        genesis, chain: Chain.ID, args: provideParams ? await provideParams() : undefined
+      });
       // Check against pre-defined CMR/P2TR.
       if (p2tr) equal(prog.p2tr, p2tr);
-
       // Fund program from deployer
       const id = await rpc.sendtoaddress(p2tr, String(1));
       const previous = testSplitTx(await rest.tx(id), p2tr, 1, cost).hex;
-
       // Create local spender wallet and import it to RPC:
       const network = { bech32: 'ert', pubKeyHash: 0x6f, scriptHash: 0xc4, wif: 0xef, };
       const recipient = p2wpkh(PUB_ECDSA, network).address;
       await rpc.importaddress(recipient);
-
       // Note current balance:
       await rpc.rescanblockchain();
       const balance = ((await rpc.getreceivedbyaddress(recipient, 0)) as { bitcoin: number }).bitcoin;
-
       // Try spending from program:
       const fee = 1e-4;
       const amount = 1. - fee;
       const sighash = prog.redeemSighash({ previous, amount, fee, recipient });
-      console.log({ sighash });
-      const witness = wits ? await wits(sighash) : {};
-      console.log({ witness });
-
+      const witness = provideWitness ? await provideWitness(sighash) : {};
       // Ultimate execution context.
-      // TODO: Simplify/separate context from args/?
       const context = { rpc, rest, /*sign,*/ previous, amount, fee, witness, recipient };
-
       if (fail) {
-
         // TX is expected to fail
         rejects(()=>prog.redeem(context));
-
         // Balance is expected to remain the same
         equal(await rpc.getreceivedbyaddress(recipient, 0), { bitcoin: balance });
-
       } else {
-
         // TX is expected to pass
         await prog.redeem(context);
-
         // Balance is expected to increase
         equal(await rpc.getreceivedbyaddress(recipient, 0), { bitcoin: balance + amount });
-
       }
       return context;
     }
@@ -201,67 +208,3 @@ function testSplitTx (
   //hasVout((x: Bitcoin.Vout)=>x.value===bitcoin, `remaining: must be ${bitcoin}`);
   return tx
 }
-
-  // TODO:
-  /* https://github.com/BlockstreamResearch/SimplicityHL/blob/master/examples/escrow_with_delay.simf
-   * https://docs.ivylang.org/bitcoin/language/ExampleContracts.html#escrowwithdelay */
-  //function EscrowProgram ({
-    //sender    = '0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798',
-    //recipient = '0xc6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5',
-    //escrow    = '0xf9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9',
-    //timeout   = '1000',
-  //} = {}) { return `
-    //fn main () {
-      //// Depending on provided witness:
-      //match witness::TRANSFER_OR_TIMEOUT {
-        //// Transfer to receiver:
-        //Left(maybe_sigs: [Option<Signature>; 3]) => spend_confirm(maybe_sigs),
-        //// or return to sender:
-        //Right(sender_sig: Signature) => spend_revoke(sender_sig), } }
-    //fn spend_revoke (sender_sig: Signature) {
-      //checksig(${sender}, sender_sig);
-      //jet::check_lock_distance(${timeout}); }
-    //fn spend_confirm (maybe_sigs: [Option<Signature>; 3]) {
-      //let threshold: u8 = 2;
-      //let [sig1, sig2, sig3]: [Option<Signature>; 3] = maybe_sigs;
-      //let counter1: u8 = checksig_add(0,        ${sender},    sig1);
-      //let counter2: u8 = checksig_add(counter1, ${recipient}, sig2);
-      //let counter3: u8 = checksig_add(counter2, ${escrow},    sig3);
-      //assert!(jet::eq_8(counter3, threshold)); }
-    //fn checksig_add (counter: u8, pk: Pubkey, maybe_sig: Option<Signature>) -> u8 {
-      //match maybe_sig {
-        //None => counter,
-        //Some(sig: Signature) => {
-          //checksig(pk, sig);
-          //let (carry, new_counter): (bool, u8) = jet::increment_8(counter);
-          //assert!(not(carry));
-          //new_counter } } }
-    //fn checksig (pk: Pubkey, sig: Signature) {
-      //jet::bip_0340_verify((pk, jet::sig_all_hash()), sig); }
-    //fn not (bit: bool) -> bool {
-      //<u1>::into(jet::complement_1(<bool>::into(bit))) }
-  //` }
-  //function EscrowProgramWitness (
-    //value = "Right(0xedb6865094260f8558728233aae017dd0969a2afe5f08c282e1ab659bf2462684c99a64a2a57246358a0d632671778d016e6df7381293dd5bb9f0999d38640d4)",
-  //) { return { TRANSFER_OR_TIMEOUT: Either('[Option<Signature>; 3]', 'Signature', value) } }
-
-  //[>* Test cmr_to_p2tr on a given example. <]
-  //function testAddress ({ cmr, p2tr: expectedP2TR }: Example) {
-    //return (cmrToP2TR: Fn) => {
-      //throws(()=>cmrToP2TR());
-      //if (cmr) {
-        //const p2tr = cmrToP2TR(cmr);
-        //if (expectedP2TR) equal(p2tr, expectedP2TR);
-      //}
-      //return cmrToP2TR
-    //}
-  //}
-
-  //[>* Test compile on a given example. <]
-  //function testCompile ({ src, cmr }: Example) {
-    //return Fn.Name(`Compile (${src.length}b)`, (compile: Fn) => {
-      //const result = compile(src, {}) as { toJSON: Fn.Returns<{ cmr: unknown }> };
-      //if (cmr) equal(result.toJSON().cmr, cmr);
-      //return compile;
-    //});
-  //}

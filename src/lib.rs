@@ -4,7 +4,8 @@ use wasm_bindgen::prelude::*;
 #[allow(unused)] use js_sys::*;
 #[allow(unused)] use bitcoin_hashes::Hash;
 #[allow(unused)] use simplicityhl::{
-    Arguments, CompiledProgram, SatisfiedProgram, Value, WitnessValues,
+    CompiledProgram, SatisfiedProgram, TemplateProgram,
+    Arguments, Parameters, Value, WitnessTypes, WitnessValues,
     debug::DebugSymbols,
     str::WitnessName,
     tracker::{DefaultTracker, TrackerLogLevel},
@@ -181,12 +182,18 @@ type Maybe<T> = Result<T, JsError>;
         if options.is_object() {
             args = get!(options, "args", arg_args)?;
         }
+        let template = expected_display!("parse error":
+            TemplateProgram::new(source.clone()))?;
+        let compiled = expected_display!("compile error":
+            CompiledProgram::new(source.clone(), args.clone(), true))?;
         Ok(Program {
+            source:  source.clone().into(),
+            params:  template.parameters().clone(),
+            witness: template.witness_types().clone(),
             genesis: self.genesis.clone(),
-            chain: self.chain.clone(),
-            source: source.clone().into(),
-            args: args.clone(),
-            compiled: expected_display!("compile error": CompiledProgram::new(source, args, true))?,
+            chain:   self.chain.clone(),
+            args,
+            compiled,
         })
     }
 
@@ -199,15 +206,34 @@ type Maybe<T> = Result<T, JsError>;
     pub(crate) source:   Arc<str>,
     pub(crate) args:     Arguments,
     pub(crate) compiled: CompiledProgram,
+    pub(crate) params:   Parameters,
+    pub(crate) witness:  WitnessTypes,
 }
 
 #[wasm_bindgen] impl Program {
-
+    /// Produce JSON description of program object.
     #[wasm_bindgen(js_name = toJSON)]
     pub fn to_json (&self) -> Object {
         ret_program(&self).unwrap_or_else(|e|JsValue::from(e).into())
     }
-
+    /// Produce JSON dict of compile-time parameter types.
+    #[wasm_bindgen(js_name = parameterTypes)]
+    pub fn parameter_types (&self) -> Maybe<Object> {
+        let result = Object::new();
+        for (k, v) in self.params.iter() {
+            expected!("set": Reflect::set(&result, &format!("{k}").into(), &format!("{v}").into()))?;
+        }
+        Ok(result)
+    }
+    /// Produce JSON dict of run-time parameter types.
+    #[wasm_bindgen(js_name = witnessTypes)]
+    pub fn witness_types (&self) -> Maybe<Object> {
+        let result = Object::new();
+        for (k, v) in self.witness.iter() {
+            expected!("set": Reflect::set(&result, &format!("{k}").into(), &format!("{v}").into()))?;
+        }
+        Ok(result)
+    }
     /// Partially-signed redeem transaction without witnesses.
     /// For extremely manual signing.
     #[wasm_bindgen(js_name = redeemPsbt)]

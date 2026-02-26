@@ -359,6 +359,19 @@ export class Program {
         return takeFromExternrefTable0(ret[0]);
     }
     /**
+     * Produce JSON dict of run-time parameter types.
+     * @returns {object}
+     */
+    witnessTypes() {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ret = wasm.program_witnessTypes(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
      * SIGHASH_ALL of redeem transaction.
      * Sign this to provide witness data.
      * @param {any} options
@@ -374,6 +387,20 @@ export class Program {
         return takeFromExternrefTable0(ret[0]);
     }
     /**
+     * Produce JSON dict of compile-time parameter types.
+     * @returns {object}
+     */
+    parameterTypes() {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ret = wasm.program_parameterTypes(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * Produce JSON description of program object.
      * @returns {object}
      */
     toJSON() {
