@@ -225,6 +225,9 @@ const ProgramFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_program_free(ptr >>> 0, 1));
 
+/**
+ * A SimplicityHL compiler, bound to for a particular chain by address config and genesis block.
+ */
 export class Compiler {
     constructor() {
         throw new Error('cannot invoke `new` directly');
@@ -344,6 +347,19 @@ export class Program {
         wasm.__wbg_program_free(ptr, 0);
     }
     /**
+     * Produce JSON dict of compile-time parameter types.
+     * @returns {object}
+     */
+    paramTypes() {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ret = wasm.program_paramTypes(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
      * Partially-signed redeem transaction without witnesses.
      * For extremely manual signing.
      * @param {any} options
@@ -381,19 +397,6 @@ export class Program {
         if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
         _assertNum(this.__wbg_ptr);
         const ret = wasm.program_redeemSighash(this.__wbg_ptr, options);
-        if (ret[2]) {
-            throw takeFromExternrefTable0(ret[1]);
-        }
-        return takeFromExternrefTable0(ret[0]);
-    }
-    /**
-     * Produce JSON dict of compile-time parameter types.
-     * @returns {object}
-     */
-    parameterTypes() {
-        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
-        _assertNum(this.__wbg_ptr);
-        const ret = wasm.program_parameterTypes(this.__wbg_ptr);
         if (ret[2]) {
             throw takeFromExternrefTable0(ret[1]);
         }
@@ -454,11 +457,25 @@ export function keypair(secret) {
 }
 
 /**
+ * Extract parameter types from SimplicityHL source code.
  * @param {string} source
  * @returns {object}
  */
-export function params(source) {
-    const ret = wasm.params(source);
+export function paramTypes(source) {
+    const ret = wasm.paramTypes(source);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Extract witness types from SimplicityHL source code.
+ * @param {string} source
+ * @returns {object}
+ */
+export function witnessTypes(source) {
+    const ret = wasm.witnessTypes(source);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }

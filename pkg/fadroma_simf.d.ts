@@ -38,6 +38,10 @@ export class Program {
   free(): void;
   [Symbol.dispose](): void;
   /**
+   * Produce JSON dict of compile-time parameter types.
+   */
+  paramTypes(): object;
+  /**
    * Partially-signed redeem transaction without witnesses.
    * For extremely manual signing.
    */
@@ -51,10 +55,6 @@ export class Program {
    * Sign this to provide witness data.
    */
   redeemSighash(options: any): Uint8Array;
-  /**
-   * Produce JSON dict of compile-time parameter types.
-   */
-  parameterTypes(): object;
   /**
    * Produce JSON description of program object.
    */
@@ -76,7 +76,15 @@ export function compiler(options: any): Compiler;
  */
 export function keypair(secret: Uint8Array): Keypair;
 
-export function params(source: string): object;
+/**
+ * Extract parameter types from SimplicityHL source code.
+ */
+export function paramTypes(source: string): object;
+
+/**
+ * Extract witness types from SimplicityHL source code.
+ */
+export function witnessTypes(source: string): object;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
@@ -90,13 +98,14 @@ export interface InitOutput {
   readonly keypair: (a: any) => [number, number, number];
   readonly keypair_signSchnorr: (a: number, b: any) => any;
   readonly keypair_xOnlyPublicKey: (a: number) => any;
-  readonly params: (a: any) => [number, number, number];
-  readonly program_parameterTypes: (a: number) => [number, number, number];
+  readonly paramTypes: (a: any) => [number, number, number];
+  readonly program_paramTypes: (a: number) => [number, number, number];
   readonly program_redeemPsbt: (a: number, b: any) => [number, number, number];
   readonly program_redeemSighash: (a: number, b: any) => [number, number, number];
   readonly program_redeemTx: (a: number, b: any) => [number, number, number];
   readonly program_toJSON: (a: number) => any;
   readonly program_witnessTypes: (a: number) => [number, number, number];
+  readonly witnessTypes: (a: any) => [number, number, number];
   readonly rust_0_6_malloc: (a: number) => number;
   readonly rust_0_6_free: (a: number) => void;
   readonly rust_0_6_calloc: (a: number, b: number) => number;

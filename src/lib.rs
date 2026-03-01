@@ -167,12 +167,9 @@ type Maybe<T> = Result<T, JsError>;
     })
 }
 
-#[wasm_bindgen] pub struct Compiler {
-    genesis: Arc<BlockHash>,
-    chain: Arc<str>,
-}
-
-#[wasm_bindgen] pub fn params (source: JsString) -> Maybe<Object> {
+/// Extract parameter types from SimplicityHL source code.
+#[wasm_bindgen(js_name = paramTypes)]
+pub fn param_types (source: JsString) -> Maybe<Object> {
     let source: Arc<str> = source.as_string().unwrap_or_default().into();
     let template = expected_display!("parse error": TemplateProgram::new(source))?;
     let result   = Object::new();
@@ -180,6 +177,24 @@ type Maybe<T> = Result<T, JsError>;
         expected!("set": Reflect::set(&result, &format!("{k}").into(), &format!("{v}").into()))?;
     }
     Ok(result)
+}
+
+/// Extract witness types from SimplicityHL source code.
+#[wasm_bindgen(js_name = witnessTypes)]
+pub fn witness_types (source: JsString) -> Maybe<Object> {
+    let source: Arc<str> = source.as_string().unwrap_or_default().into();
+    let template = expected_display!("parse error": TemplateProgram::new(source))?;
+    let result   = Object::new();
+    for (k, v) in template.witness_types().iter() {
+        expected!("set": Reflect::set(&result, &format!("{k}").into(), &format!("{v}").into()))?;
+    }
+    Ok(result)
+}
+
+/// A SimplicityHL compiler, bound to for a particular chain by address config and genesis block.
+#[wasm_bindgen] pub struct Compiler {
+    genesis: Arc<BlockHash>,
+    chain: Arc<str>,
 }
 
 #[wasm_bindgen] impl Compiler {
@@ -227,8 +242,8 @@ type Maybe<T> = Result<T, JsError>;
         ret_program(&self).unwrap_or_else(|e|JsValue::from(e).into())
     }
     /// Produce JSON dict of compile-time parameter types.
-    #[wasm_bindgen(js_name = parameterTypes)]
-    pub fn parameter_types (&self) -> Maybe<Object> {
+    #[wasm_bindgen(js_name = paramTypes)]
+    pub fn param_types (&self) -> Maybe<Object> {
         let result = Object::new();
         for (k, v) in self.params.iter() {
             expected!("set": Reflect::set(&result, &format!("{k}").into(), &format!("{v}").into()))?;
@@ -251,7 +266,7 @@ type Maybe<T> = Result<T, JsError>;
         let (psbt, _) = self.redeem_psbt_utxo(options)?;
         match JSON::parse(serde_json::to_string(&psbt)?.as_str()) {
             Ok(psbt) => Ok(psbt),
-            Err(_)   => err!("failed to deserialize interim psbt")
+            Err(_)   => err!("failed to deserialize interim redeem psbt")
         }
     }
 
