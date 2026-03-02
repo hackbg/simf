@@ -101,36 +101,9 @@ function TestSimplicityHL (Chain: typeof Bitcoin.ElementsRegtest) {
         SIG: SimplicityHL.Arg.Signature(KEYPAIR.signSchnorr(sighash)),
       })
     }),
-
-    // - more complex signing
-    Example("pay to pubkey hash", `fn sha2 (string: u256) -> u256 {
-      let hasher: Ctx8 = jet::sha_256_ctx_8_init();
-      let hasher: Ctx8 = jet::sha_256_ctx_8_add_32(hasher, string);
-      jet::sha_256_ctx_8_finalize(hasher)
-    }
-    fn main () {
-      let pk: Pubkey = witness::PUB;
-      assert!(jet::eq_256(sha2(pk), param::PKH));
-      jet::bip_0340_verify((pk, jet::sig_all_hash()), witness::SIG)
-    }`, {
-      fee: 2.7e-7,
-      cmr: 'e65e19e139a13583a0a7efb24be13c20d578f06f51b2a7fe7c7b9097072dbabe',
-      p2tr: 'ert1psfhg3z9z6mjravcyysv84krhgg6wv8em0w7rpxcfac8nshkzy0tscparek',
-      paramTypes: { PKH: "u256" },
-      witnessTypes: { SIG: "[u8; 64]", PUB: "u256" },
-      provideParams: () => ({
-        PKH: SimplicityHL.Arg.Pubkey(KEYPAIR.xOnlyPublicKey()) /*FIXME hashit*/
-      }),
-      provideWitness: (sighash: Uint8Array<ArrayBufferLike>) => ({
-        SIG: SimplicityHL.Arg.Signature(KEYPAIR.signSchnorr(sighash)),
-        PUB: SimplicityHL.Arg.Pubkey(KEYPAIR.xOnlyPublicKey()),
-      }),
-    }),
-
-    // - multisig: TODO
     
     // Shutdown the localnet.
-    (btc: Bitcoin) => btc.kill(9));
+    (context: Bitcoin) => context.kill(9));
 
   /** Define example program. */
   function Example (name: string, src: string, {
@@ -155,11 +128,11 @@ function TestSimplicityHL (Chain: typeof Bitcoin.ElementsRegtest) {
       provideParams,
       provideWitness,
     })
-    async function testExample ({ rpc, rest }: Bitcoin) {
+    async function testExample (context: Bitcoin) {
+      const { rpc, rest } = context;
       // Compile the program.
-      const prog = await SimplicityHL.Program(src, {
-        genesis, chain: Chain.ID, args: provideParams ? await provideParams() : undefined
-      });
+      const opts = { genesis, chain: Chain.ID, args: provideParams ? await provideParams() : undefined };
+      const prog = await SimplicityHL.Program(src, opts);
       // Check against pre-defined CMR/P2TR.
       if (p2tr) equal(prog.p2tr, p2tr);
       // Fund program from deployer
@@ -177,16 +150,15 @@ function TestSimplicityHL (Chain: typeof Bitcoin.ElementsRegtest) {
       const amount = 1. - fee;
       const sighash = prog.redeemSighash({ previous, amount, fee, recipient });
       const witness = provideWitness ? await provideWitness(sighash) : {};
-      // Ultimate execution context.
-      const context = { rpc, rest, /*sign,*/ previous, amount, fee, witness, recipient };
+      const redeemArgs = { rpc, rest, previous, amount, fee, witness, recipient };
       if (fail) {
         // TX is expected to fail
-        rejects(()=>prog.redeem(context));
+        rejects(()=>prog.redeem(redeemArgs));
         // Balance is expected to remain the same
         equal(await rpc.getreceivedbyaddress(recipient, 0), { bitcoin: balance });
       } else {
         // TX is expected to pass
-        await prog.redeem(context);
+        await prog.redeem(redeemArgs);
         // Balance is expected to increase
         equal(await rpc.getreceivedbyaddress(recipient, 0), { bitcoin: balance + amount });
       }

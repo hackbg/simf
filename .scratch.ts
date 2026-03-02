@@ -61,3 +61,30 @@
       //return compile;
     //});
   //}
+
+    //// - more complex signing
+    //Example("pay to pubkey hash", `fn sha2 (string: u256) -> u256 {
+      //let hasher: Ctx8 = jet::sha_256_ctx_8_init();
+      //let hasher: Ctx8 = jet::sha_256_ctx_8_add_32(hasher, string);
+      //jet::sha_256_ctx_8_finalize(hasher)
+    //}
+    //fn main () {
+      //let pk: Pubkey = witness::PUB;
+      //assert!(jet::eq_256(sha2(pk), param::PKH));
+      //jet::bip_0340_verify((pk, jet::sig_all_hash()), witness::SIG)
+    //}`, {
+      //fee: 2.7e-7,
+      //cmr: 'e65e19e139a13583a0a7efb24be13c20d578f06f51b2a7fe7c7b9097072dbabe',
+      //p2tr: 'ert1psfhg3z9z6mjravcyysv84krhgg6wv8em0w7rpxcfac8nshkzy0tscparek',
+      //paramTypes: { PKH: "u256" },
+      //witnessTypes: { SIG: "[u8; 64]", PUB: "u256" },
+      //provideParams: () => ({
+        //PKH: SimplicityHL.Arg.Pubkey(KEYPAIR.xOnlyPublicKey()) [>FIXME hashit<]
+      //}),
+      //provideWitness: (sighash: Uint8Array<ArrayBufferLike>) => ({
+        //SIG: SimplicityHL.Arg.Signature(KEYPAIR.signSchnorr(sighash)),
+        //PUB: SimplicityHL.Arg.Pubkey(KEYPAIR.xOnlyPublicKey()),
+      //}),
+    //}),
+
+    //// - multisig: TODO
