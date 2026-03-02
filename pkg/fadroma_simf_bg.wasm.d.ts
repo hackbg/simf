@@ -10,6 +10,7 @@ export const keypair: (a: any) => [number, number, number];
 export const keypair_signSchnorr: (a: number, b: any) => any;
 export const keypair_xOnlyPublicKey: (a: number) => any;
 export const paramTypes: (a: any) => [number, number, number];
+export const program_commitPsbt: (a: number, b: any) => [number, number, number];
 export const program_paramTypes: (a: number) => [number, number, number];
 export const program_redeemPsbt: (a: number, b: any) => [number, number, number];
 export const program_redeemSighash: (a: number, b: any) => [number, number, number];

@@ -38,12 +38,17 @@ export class Program {
   free(): void;
   [Symbol.dispose](): void;
   /**
+   * Partially-signed commit transaction.
+   * For manual signing.
+   */
+  commitPsbt(options: any): any;
+  /**
    * Produce JSON dict of compile-time parameter types.
    */
   paramTypes(): object;
   /**
    * Partially-signed redeem transaction without witnesses.
-   * For extremely manual signing.
+   * For manual signing.
    */
   redeemPsbt(options: any): any;
   /**
@@ -99,6 +104,7 @@ export interface InitOutput {
   readonly keypair_signSchnorr: (a: number, b: any) => any;
   readonly keypair_xOnlyPublicKey: (a: number) => any;
   readonly paramTypes: (a: any) => [number, number, number];
+  readonly program_commitPsbt: (a: number, b: any) => [number, number, number];
   readonly program_paramTypes: (a: number) => [number, number, number];
   readonly program_redeemPsbt: (a: number, b: any) => [number, number, number];
   readonly program_redeemSighash: (a: number, b: any) => [number, number, number];

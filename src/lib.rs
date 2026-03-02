@@ -241,6 +241,7 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
     pub fn to_json (&self) -> Object {
         ret_program(&self).unwrap_or_else(|e|JsValue::from(e).into())
     }
+
     /// Produce JSON dict of compile-time parameter types.
     #[wasm_bindgen(js_name = paramTypes)]
     pub fn param_types (&self) -> Maybe<Object> {
@@ -250,6 +251,7 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
         }
         Ok(result)
     }
+
     /// Produce JSON dict of run-time parameter types.
     #[wasm_bindgen(js_name = witnessTypes)]
     pub fn witness_types (&self) -> Maybe<Object> {
@@ -259,8 +261,29 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
         }
         Ok(result)
     }
+
+    /// Partially-signed commit transaction.
+    /// For manual signing.
+    #[wasm_bindgen(js_name = commitPsbt)]
+    pub fn commit_psbt (&self, options: &JsValue) -> Maybe<JsValue> {
+        let previous = get!(options, "previous", arg_tx)?;
+        let sender   = get!(options, "sender",   arg_address)?;
+        let amount   = get!(options, "amount",   arg_sats)?;
+        let fee      = get!(options, "fee",      arg_sats)?;
+        let (previous_output, utxo) = find_utxo(&previous, &sender)?;
+        let asset = utxo.asset.explicit().unwrap();
+        let in_0  = tx_input(previous_output);
+        let out_0 = tx_output(asset, self.p2tr()?, amount);
+        let out_1 = elements::TxOut::new_fee(fee, asset);
+        let psbt = PartiallySignedTransaction::from_tx(transaction(vec![in_0], vec![out_0, out_1]));
+        match JSON::parse(serde_json::to_string(&psbt)?.as_str()) {
+            Ok(psbt) => Ok(psbt),
+            Err(_)   => err!("failed to deserialize interim redeem psbt")
+        }
+    }
+
     /// Partially-signed redeem transaction without witnesses.
-    /// For extremely manual signing.
+    /// For manual signing.
     #[wasm_bindgen(js_name = redeemPsbt)]
     pub fn redeem_psbt (&self, options: &JsValue) -> Maybe<JsValue> {
         let (psbt, _) = self.redeem_psbt_utxo(options)?;
@@ -275,7 +298,7 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
         let recipient = get!(options, "recipient", arg_address)?;
         let amount    = get!(options, "amount",    arg_sats)?;
         let fee       = get!(options, "fee",       arg_sats)?;
-        let (previous_output, utxo) = self.utxo(&previous)?;
+        let (previous_output, utxo) = find_utxo(&previous, &self.p2tr()?)?;
         let asset = utxo.asset.explicit().unwrap();
         let in_0  = tx_input(previous_output);
         let out_0 = tx_output(asset, recipient, amount);

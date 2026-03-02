@@ -347,6 +347,21 @@ export class Program {
         wasm.__wbg_program_free(ptr, 0);
     }
     /**
+     * Partially-signed commit transaction.
+     * For manual signing.
+     * @param {any} options
+     * @returns {any}
+     */
+    commitPsbt(options) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ret = wasm.program_commitPsbt(this.__wbg_ptr, options);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
      * Produce JSON dict of compile-time parameter types.
      * @returns {object}
      */
@@ -361,7 +376,7 @@ export class Program {
     }
     /**
      * Partially-signed redeem transaction without witnesses.
-     * For extremely manual signing.
+     * For manual signing.
      * @param {any} options
      * @returns {any}
      */
