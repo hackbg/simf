@@ -832,9 +832,6 @@ function __wbg_get_imports() {
         const ret = arg0.crypto;
         return ret;
     }, arguments) };
-    imports.wbg.__wbg_debug_9d0c87ddda3dc485 = function() { return logError(function (arg0) {
-        console.debug(arg0);
-    }, arguments) };
     imports.wbg.__wbg_error_7534b8e9a36f1ab4 = function() { return logError(function (arg0, arg1) {
         let deferred0_0;
         let deferred0_1;
