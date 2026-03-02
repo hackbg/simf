@@ -18,6 +18,7 @@ export default Test(import.meta, 'SimplicityHL',
   // Check that the API entrypoints are present on the WASM module:
   Test('WASM', () => SimplicityHL.Wasm(),
     Has('keypair',      Is('function')),
+    Has('splitPsbt',    Is('function')),
     Has('paramTypes',   Is('function')),
     Has('witnessTypes', Is('function')),
     Has('compiler',     Is('function'))),

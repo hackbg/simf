@@ -73,16 +73,18 @@ export interface Program {
   /** The program's template arguments. */
   args?:        Args,
   /** Transfer funds to program. */
-  commit        (_: Commit & Connection):  Promise<string>
+  commit        (_: Commit & Connection): Promise<string>
   /** Generate transaction to transfer funds to program. */
   commitTx      (_: Commit): { bytes: Uint8Array, hex: string, tx: Transaction }
+  /** Generate commit PSET for caller to sign manually. */
+  commitPset    (_: Redeem): string;
   /** Transfer funds from program. */
   redeem        (_: Redeem & Connection): Promise<string>
   /** Generate transaction to redeem funds from program. */
   redeemTx      (_: Redeem): { bytes: Uint8Array, hex: string, tx: Transaction }
-  /** Get sighash for redeem to sign by witness. */
+  /** Generate redeem sighash for witness to sign. */
   redeemSighash (_: Redeem): string;
-  /** Get PSET for redeem for fully manual signing. */
+  /** Generate redeem PSET for caller to sign manually. */
   redeemPset    (_: Redeem): string;
 }
 

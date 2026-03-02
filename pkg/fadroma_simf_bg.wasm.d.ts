@@ -17,6 +17,7 @@ export const program_redeemSighash: (a: number, b: any) => [number, number, numb
 export const program_redeemTx: (a: number, b: any) => [number, number, number];
 export const program_toJSON: (a: number) => any;
 export const program_witnessTypes: (a: number) => [number, number, number];
+export const splitPsbt: (a: any) => [number, number, number];
 export const witnessTypes: (a: any) => [number, number, number];
 export const rust_0_6_malloc: (a: number) => number;
 export const rust_0_6_free: (a: number) => void;

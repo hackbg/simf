@@ -266,7 +266,7 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
     /// For manual signing.
     #[wasm_bindgen(js_name = commitPsbt)]
     pub fn commit_psbt (&self, options: &JsValue) -> Maybe<JsValue> {
-        match JSON::parse(serde_json::to_string(&split_psbt(
+        match JSON::parse(serde_json::to_string(&split_psbt_impl(
             &get!(options, "previous", arg_tx)?,
             &get!(options, "sender",   arg_address)?,
             &self.p2tr()?,
@@ -279,7 +279,7 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
     }
 
     fn redeem_psbt_utxo (&self, options: &JsValue) -> Maybe<(PartiallySignedTransaction, TxOut)> {
-        split_psbt(
+        split_psbt_impl(
             &get!(options, "previous",  arg_tx)?,
             &self.p2tr()?,
             &get!(options, "recipient", arg_address)?,
@@ -381,7 +381,21 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
 
 }
 
-fn split_psbt (
+#[wasm_bindgen(js_name = splitPsbt)]
+pub fn split_psbt (options: &JsValue) -> Maybe<JsValue> {
+    match JSON::parse(serde_json::to_string(&split_psbt_impl(
+        &get!(options, "previous",  arg_tx)?,
+        &get!(options, "sender",    arg_address)?,
+        &get!(options, "recipient", arg_address)?,
+        get!(options, "amount",     arg_sats)?,
+        get!(options, "fee",        arg_sats)?
+    )?.0)?.as_str()) {
+        Ok(psbt) => Ok(psbt),
+        Err(_)   => err!("failed to deserialize interim redeem psbt")
+    }
+}
+
+fn split_psbt_impl (
     previous: &Transaction, sender: &Address, recipient: &Address, amount: u64, fee: u64
 ) -> Maybe<(PartiallySignedTransaction, TxOut)> {
     let (previous_output, utxo) = find_utxo(&previous, &sender)?;

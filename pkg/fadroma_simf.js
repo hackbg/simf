@@ -485,6 +485,18 @@ export function paramTypes(source) {
 }
 
 /**
+ * @param {any} options
+ * @returns {any}
+ */
+export function splitPsbt(options) {
+    const ret = wasm.splitPsbt(options);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * Extract witness types from SimplicityHL source code.
  * @param {string} source
  * @returns {object}
