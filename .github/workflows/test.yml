@@ -1,0 +1,47 @@
+name: Test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build WASM image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: wasm
+          tags: hackbg/fadroma-simplicity:build
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Compile WASM (debug)
+        run: |
+          docker run --rm \
+            -v "$PWD:/build:rw" \
+            hackbg/fadroma-simplicity:build \
+            "just build-wasm-debug"
+
+      - name: Build test image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: test
+          tags: hackbg/fadroma-simplicity:test
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run tests
+        run: |
+          docker run --rm \
+            -v "$PWD:/fadroma/platform/SimplicityHL:rw" \
+            hackbg/fadroma-simplicity:test \
+            "cd platform/SimplicityHL/ && ./SimplicityHL.test.ts"
