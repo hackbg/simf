@@ -1,4 +1,4 @@
-import Bitcoin         from '../Bitcoin/Bitcoin.ts';
+import type Bitcoin    from '../Bitcoin/Bitcoin.ts';
 import Fn              from '../../library/Fn.ts';
 import { Log }         from '../../library/Log.ts';
 import { Num, Base16 } from '../../library/Number.ts';
@@ -117,6 +117,7 @@ export async function Program (source: string, {
   chain?:  'elementsregtest'|'liquidtestnet',
   genesis?: string
 } = {}): Promise<Program> {
+  const missing = (name: string) => { throw new Error(`missing: ${name}`) }
   // Compilation is synchronous, but we have to wait for the WASM the first time (FIXME?)
   const compiler = (await Wasm()).compiler({ chain, genesis });
   // Compile the program for the target chain, receiving a WASM descriptor.
@@ -126,7 +127,54 @@ export async function Program (source: string, {
   // Deserialize args (FIXME? do this on the rust side)
   if (typeof fields.args === 'string') fields.args = JSON.parse(fields.args as unknown as string);
   // Manually attach properties and methods:
-  return Object.assign(program, fields, { commit: Commit(program), redeem: Redeem(program) });
+  return Object.assign(program, fields, {
+    async commit ({
+      rest  = missing('rest'),
+      rpc   = missing('rpc'),
+      //send  = Bitcoin.Send({ rpc, rest }),
+      //sign  = Bitcoin.Sign.Rpc(rpc),
+      //debug = console.debug,
+      //error = console.error,
+      //log:  _0,
+      //warn: _1,
+      ...options
+    }: Connection & Commit) {
+      const tx = program.commitTx(options);
+      //debug('\nCOMMIT: INPUT:  ', JSON.stringify(tx.tx.input));
+      //debug('\nCOMMIT: OUTPUT: ', JSON.stringify(tx.tx.output));
+      //const signed = await sign(tx.bytes);
+      //debug('\nCOMMIT: SIGNED:   ', JSON.stringify(Base16.encode(tx.bytes)));
+      //debug('\nCOMMIT: SIGNED:   ', JSON.stringify(tx.hex));
+      //debug('\nCOMMIT: SIGNATURE:', JSON.stringify(signed));
+      return await rest.tx(await rpc!.sendrawtransaction(tx.hex));
+    },
+    async redeem ({
+      rest  = missing('rest'),
+      rpc   = missing('rpc'),
+      //send  = Bitcoin.Send({ rpc, rest }),
+      //sign  = Bitcoin.Sign.Rpc(rpc),
+      //debug = console.debug,
+      //error = console.error,
+      //log:  _0,
+      //warn: _1,
+      ...options
+    }: Connection & Redeem) {
+      const tx = program.redeemTx(options);
+      //console.log({tx});
+      //for (let i = 0; i < tx.tx.input.length; i++)  debug(`REDEEM: INPUT ${i}:`,  tx.tx.input[i]);
+      //for (let i = 0; i < tx.tx.output.length; i++) debug(`REDEEM: OUTPUT ${i}:`, tx.tx.output[i]);
+      //debug('REDEEM: BYTES:    ', tx.hex);
+      //const signed = await sign(tx.bytes);
+      //console.log({signed});
+      //if (signed.errors?.length > 0) {
+        //for (const e of signed.errors) error(e)
+        //throw Err(`Transaction signing errors (${signed.errors.length})`, signed)
+      //}
+      //if (!signed.complete) throw new Error('Transaction not fully signed', signed)
+      //debug('REDEEM: SIGNATURE:', signed);
+      return await rest.tx(await rpc.sendrawtransaction(tx.hex));
+    }
+  });
 }
 
 /** Connection to Elements RPC for sending and signing transactions. */
@@ -184,57 +232,3 @@ export interface Transaction {
   version: unknown
   lock_time: { block: number }|{ seconds: number }
 };
-
-function Commit (program: Program) {
-  const missing = (name: string) => { throw new Error(`commit: missing: ${name}`) }
-  return async function commit ({
-    rest  = missing('rest'),
-    rpc   = missing('rpc'),
-    send  = Bitcoin.Send({ rpc, rest }),
-    sign  = Bitcoin.Sign.Rpc(rpc),
-    debug = console.debug,
-    error = console.error,
-    log:  _0,
-    warn: _1,
-    ...options
-  }: Connection & Commit) {
-    const tx = program.commitTx(options);
-    //debug('\nCOMMIT: INPUT:  ', JSON.stringify(tx.tx.input));
-    //debug('\nCOMMIT: OUTPUT: ', JSON.stringify(tx.tx.output));
-    //const signed = await sign(tx.bytes);
-    //debug('\nCOMMIT: SIGNED:   ', JSON.stringify(Base16.encode(tx.bytes)));
-    //debug('\nCOMMIT: SIGNED:   ', JSON.stringify(tx.hex));
-    //debug('\nCOMMIT: SIGNATURE:', JSON.stringify(signed));
-    return await rest.tx(await rpc!.sendrawtransaction(tx.hex));
-  }
-}
-
-function Redeem (program: Program) {
-  const missing = (name: string) => { throw new Error(`redeem: missing: ${name}`) }
-  return async function redeem ({
-    rest  = missing('rest'),
-    rpc   = missing('rpc'),
-    send  = Bitcoin.Send({ rpc, rest }),
-    sign  = Bitcoin.Sign.Rpc(rpc),
-    debug = console.debug,
-    error = console.error,
-    log:  _0,
-    warn: _1,
-    ...options
-  }: Connection & Redeem) {
-    const tx = program.redeemTx(options);
-    //console.log({tx});
-    //for (let i = 0; i < tx.tx.input.length; i++)  debug(`REDEEM: INPUT ${i}:`,  tx.tx.input[i]);
-    //for (let i = 0; i < tx.tx.output.length; i++) debug(`REDEEM: OUTPUT ${i}:`, tx.tx.output[i]);
-    //debug('REDEEM: BYTES:    ', tx.hex);
-    //const signed = await sign(tx.bytes);
-    //console.log({signed});
-    //if (signed.errors?.length > 0) {
-      //for (const e of signed.errors) error(e)
-      //throw Err(`Transaction signing errors (${signed.errors.length})`, signed)
-    //}
-    //if (!signed.complete) throw new Error('Transaction not fully signed', signed)
-    //debug('REDEEM: SIGNATURE:', signed);
-    return await rest.tx(await rpc.sendrawtransaction(tx.hex));
-  }
-}
