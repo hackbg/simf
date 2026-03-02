@@ -1,9 +1,9 @@
 [submodule "rust-simplicity"]
 	path = deps/rust-simplicity
-	url = https://github.com/BlockstreamResearch/rust-simplicity
+	url = https://github.com/egasimus/rust-simplicity
 [submodule "deps/simplicityhl"]
 	path = deps/simplicityhl
-	url = https://github.com/BlockstreamResearch/simplicityhl
+	url = https://github.com/hackbg/simplicityhl
 [submodule "deps/simplicity-contracts"]
 	path = deps/simplicity-contracts
 	url = https://github.com/BlockstreamResearch/simplicity-contracts/
