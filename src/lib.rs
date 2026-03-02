@@ -178,13 +178,14 @@ type Maybe<T> = Result<T, JsError>;
 
 #[wasm_bindgen(js_name = splitPsbtSigned)]
 pub fn split_psbt_signed (signer: &Keypair, options: &JsValue) -> Maybe<String> {
-    let (psbt, _) = split_psbt_impl(
+    let (mut psbt, utxo) = split_psbt_impl(
         &get!(options, "previous",  arg_tx)?,
         &get!(options, "sender",    arg_address)?,
         &get!(options, "recipient", arg_address)?,
         get!(options, "amount",     arg_sats)?,
         get!(options, "fee",        arg_sats)?
     )?;
+    psbt.inputs_mut()[0].witness_utxo = Some(utxo);
     Pst(psbt).to_signed_hex(signer)
 }
 
@@ -569,10 +570,10 @@ fn tx_input (previous_output: OutPoint) -> TxIn {
 fn tx_output (asset_id: AssetId, recipient: Address, value: u64) -> TxOut {
     TxOut {
         script_pubkey: recipient.script_pubkey(),
-        value: TxValue::Explicit(value),
-        asset: Asset::Explicit(asset_id),
-        nonce: Nonce::Null,
-        witness: TxOutWitness::default(),
+        value:         TxValue::Explicit(value),
+        asset:         Asset::Explicit(asset_id),
+        nonce:         Nonce::Null,
+        witness:       TxOutWitness::default(),
     }
 }
 
@@ -593,6 +594,7 @@ fn arg_tx_ins (array: JsValue) -> Maybe<Vec<TxIn>> {
     let mut inputs = vec![];
     for input in Array::from(&array).iter() {
         let input = try_!("input: couldn't serialize": JSON::stringify(&input))?;
+        //debug!("input: {input}");
         let input = try_!("input: couldn't deserialize":
             serde_json::from_str(&input.as_string().unwrap_or_default()))?;
         inputs.push(input);
@@ -604,7 +606,7 @@ fn arg_tx_outs (array: JsValue) -> Maybe<Vec<TxOut>> {
     let mut outputs = vec![];
     for output in Array::from(&array).iter() {
         let output = try_!("output: couldn't serialize": JSON::stringify(&output))?;
-        debug!("output: {output}");
+        //debug!("output: {output}");
         let output = try_display!("output: couldn't deserialize":
             serde_json::from_str(&output.as_string().unwrap_or_default()))?;
         outputs.push(output);
@@ -616,6 +618,7 @@ fn arg_pset_ins (array: JsValue) -> Maybe<Vec<Input>> {
     let mut inputs = vec![];
     for input in Array::from(&array).iter() {
         let input = try_!("input: couldn't serialize": JSON::stringify(&input))?;
+        //debug!("pset input: {input}");
         let input = try_!("input: couldn't deserialize":
             serde_json::from_str(&input.as_string().unwrap_or_default()))?;
         inputs.push(input);
@@ -627,7 +630,7 @@ fn arg_pset_outs (array: JsValue) -> Maybe<Vec<Output>> {
     let mut outputs = vec![];
     for output in Array::from(&array).iter() {
         let output = try_!("output: couldn't serialize": JSON::stringify(&output))?;
-        debug!("output: {output}");
+        //debug!("pset output: {output}");
         let output = try_display!("output: couldn't deserialize":
             serde_json::from_str(&output.as_string().unwrap_or_default()))?;
         outputs.push(output);
