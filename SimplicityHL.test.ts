@@ -157,12 +157,12 @@ function TestSimplicityHL (Chain: typeof Bitcoin.ElementsRegtest) {
       const redeemArgs = { rpc, rest, previous, amount, fee, witness, recipient };
       if (fail) {
         // TX is expected to fail
-        rejects(()=>prog.redeem(redeemArgs));
+        rejects(()=>prog.rpcRedeem(redeemArgs));
         // Balance is expected to remain the same
         equal(await rpc.getreceivedbyaddress(recipient, 0), { bitcoin: balance });
       } else {
         // TX is expected to pass
-        await prog.redeem(redeemArgs);
+        await prog.rpcRedeem(redeemArgs);
         // Balance is expected to increase
         equal(await rpc.getreceivedbyaddress(recipient, 0), { bitcoin: balance + amount });
       }
