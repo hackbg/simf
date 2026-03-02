@@ -266,20 +266,26 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
     /// For manual signing.
     #[wasm_bindgen(js_name = commitPsbt)]
     pub fn commit_psbt (&self, options: &JsValue) -> Maybe<JsValue> {
-        let previous = get!(options, "previous", arg_tx)?;
-        let sender   = get!(options, "sender",   arg_address)?;
-        let amount   = get!(options, "amount",   arg_sats)?;
-        let fee      = get!(options, "fee",      arg_sats)?;
-        let (previous_output, utxo) = find_utxo(&previous, &sender)?;
-        let asset = utxo.asset.explicit().unwrap();
-        let in_0  = tx_input(previous_output);
-        let out_0 = tx_output(asset, self.p2tr()?, amount);
-        let out_1 = elements::TxOut::new_fee(fee, asset);
-        let psbt = PartiallySignedTransaction::from_tx(transaction(vec![in_0], vec![out_0, out_1]));
-        match JSON::parse(serde_json::to_string(&psbt)?.as_str()) {
+        match JSON::parse(serde_json::to_string(&split_psbt(
+            &get!(options, "previous", arg_tx)?,
+            &get!(options, "sender",   arg_address)?,
+            &self.p2tr()?,
+            get!(options, "amount",   arg_sats)?,
+            get!(options, "fee",      arg_sats)?
+        )?)?.as_str()) {
             Ok(psbt) => Ok(psbt),
-            Err(_)   => err!("failed to deserialize interim redeem psbt")
+            Err(_)   => err!("failed to deserialize interim commit psbt")
         }
+    }
+
+    fn redeem_psbt_utxo (&self, options: &JsValue) -> Maybe<(PartiallySignedTransaction, TxOut)> {
+        split_psbt(
+            &get!(options, "previous",  arg_tx)?,
+            &self.p2tr()?,
+            &get!(options, "recipient", arg_address)?,
+            get!(options, "amount",    arg_sats)?,
+            get!(options, "fee",       arg_sats)?
+        )
     }
 
     /// Partially-signed redeem transaction without witnesses.
@@ -291,24 +297,6 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
             Ok(psbt) => Ok(psbt),
             Err(_)   => err!("failed to deserialize interim redeem psbt")
         }
-    }
-
-    fn redeem_psbt_utxo (&self, options: &JsValue) -> Maybe<(PartiallySignedTransaction, TxOut)> {
-        let previous  = get!(options, "previous",  arg_tx)?;
-        let recipient = get!(options, "recipient", arg_address)?;
-        let amount    = get!(options, "amount",    arg_sats)?;
-        let fee       = get!(options, "fee",       arg_sats)?;
-        let (previous_output, utxo) = find_utxo(&previous, &self.p2tr()?)?;
-        let asset = utxo.asset.explicit().unwrap();
-        let in_0  = tx_input(previous_output);
-        let out_0 = tx_output(asset, recipient, amount);
-        let out_1 = elements::TxOut::new_fee(fee, asset);
-        let psbt = PartiallySignedTransaction::from_tx(transaction(vec![in_0], vec![out_0, out_1]));
-        Ok((psbt, utxo))
-    }
-
-    fn utxo (&self, previous: &Transaction) -> Maybe<(OutPoint, TxOut)> {
-        find_utxo(&previous, &self.p2tr()?)
     }
 
     /// SIGHASH_ALL of redeem transaction.
@@ -362,7 +350,8 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
     }
 
     fn control_block (&self) -> Maybe<ControlBlock> {
-        let block = required!("control block": self.tap()?.control_block(&(self.script(), leaf_version())))?;
+        let prefix = (self.script(), leaf_version());
+        let block = required!("control block": self.tap()?.control_block(&prefix))?;
         // (control[0] & TAPROOT_LEAF_MASK) == TAPROOT_LEAF_TAPSIMPLICITY)
         if block.serialize()[0] & 0xfe != 0xbe {
             return err!("fatal: invalid control block")
@@ -390,6 +379,26 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
         }))
     }
 
+}
+
+fn split_psbt (
+    previous: &Transaction, sender: &Address, recipient: &Address, amount: u64, fee: u64
+) -> Maybe<(PartiallySignedTransaction, TxOut)> {
+    let (previous_output, utxo) = find_utxo(&previous, &sender)?;
+    if let Some(value) = utxo.value.explicit() {
+        let asset = utxo.asset.explicit().unwrap();
+        let inputs = vec![tx_input(previous_output)];
+        let mut outputs = vec![tx_output(asset, recipient.clone(), amount)];
+        let charged = amount + fee;
+        if charged < value {
+            let change = value - charged;
+            outputs.push(tx_output(asset, sender.clone(), change));
+        }
+        outputs.push(elements::TxOut::new_fee(fee, asset));
+        Ok((PartiallySignedTransaction::from_tx(transaction(inputs, outputs)), utxo))
+    } else {
+        err!("need explicit utxo")
+    }
 }
 
 /// BIP-0341's NUMS key (magic unspendable key).
