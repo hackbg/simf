@@ -192,15 +192,6 @@ const redeemTxId = await program.redeem({ rpc, rest, tx, amount, fee, witness, t
 
 ### Utilities
 
-#### Convert CMR to P2TR 
-
-If you already have the CMR (Commitment Merkle root) hash of a program,
-you can convert it to its corresponding **P2TR (Pay to Taproot)** address
-using the `cmr_to_p2tr` function:
-
-```ts
-// This example is not written yet!
-```
 
 ## Hacking
 
@@ -267,8 +258,10 @@ The tests run on an automatically managed ephemeral Elements localnet in `elemen
 This project applies techniques pioneered, described, or otherwise demonstrated
 by the following projects:
 
+* (**`EL:`**) [**elements**](https://github.com/ElementsProject/elements/blob/master/LICENSE)
+* (**`EM:`**) [**elements-miniscript**](https://github.com/ElementsProject/elements-miniscript/blob/master/LICENSE)
+* (**`SC:`**) [**simplicityhl-core** (MIT/Apache: Riabov et al., Blockstream)](https://github.com/BlockstreamResearch/simplicity-contracts/)
 * (**`SL:`**) [**simplicity-lang** (CC0: Poelstra et al., Blockstream)](https://github.com/BlockstreamResearch/rust-simplicity/)
 * (**`SW:`**) [**simplicity-webide** (CC0: Lewe et al., Blockstream)](https://github.com/BlockstreamResearch/simplicity-webide)
 * (**`SY:`**) [**simply** (MIT: Zaikin et al., Starkware)](https://github.com/starkware-bitcoin/simply)
 * (**`TR:`**) [**Simplicity Technical Report, Draft** (MIT: O'Connor, Blockstream)](https://raw.githubusercontent.com/ElementsProject/simplicity/pdf/Simplicity-TR.pdf)
-* (**`SC:`**) [**simplicityhl-core** (MIT/Apache: Riabov et al., Blockstream)](https://github.com/BlockstreamResearch/simplicity-contracts/)

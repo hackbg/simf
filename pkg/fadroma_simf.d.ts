@@ -16,7 +16,15 @@ export class Keypair {
   free(): void;
   [Symbol.dispose](): void;
   /**
-   * Perform Schnorr signing (for witnesses).
+   * Tweaked public key for authenticating in programs.
+   */
+  publicKey(): Uint8Array;
+  /**
+   * Perform ECDSA signing (for simple transactions).
+   */
+  signEcdsa(message: Uint8Array): Uint8Array;
+  /**
+   * Perform Schnorr signing (for taproot/witnesses).
    */
   signSchnorr(message: Uint8Array): Uint8Array;
   /**
@@ -71,6 +79,24 @@ export class Program {
   redeemTx(options: any): object;
 }
 
+export class Pst {
+  private constructor();
+  free(): void;
+  [Symbol.dispose](): void;
+  /**
+   * Simplified sign procedure.
+   */
+  toSignedHex(keypair: Keypair): string;
+  /**
+   * Show inner [Transaction].
+   */
+  toTx(): object;
+  /**
+   * Show [PartiallySignedTransaction]
+   */
+  toPset(): any;
+}
+
 /**
  * Create compiler, providing chain constants.
  */
@@ -86,7 +112,27 @@ export function keypair(secret: Uint8Array): Keypair;
  */
 export function paramTypes(source: string): object;
 
+/**
+ * Construct a [PartiallySignedTransaction] from [Input]s and [Output]s.
+ */
+export function pset(arg: object): any;
+
+/**
+ * Construct a [PartiallySignedTransaction] from [Input]s and [Output]s
+ * then extract the inner transaction.
+ */
+export function psetToTx(arg: object): object;
+
+export function pst(arg: object): Pst;
+
 export function splitPsbt(options: any): any;
+
+export function splitPsbtSigned(signer: Keypair, options: any): string;
+
+/**
+ * Construct a [Transaction] from [TxIn]s and [TxOut]s.
+ */
+export function tx(arg: object): object;
 
 /**
  * Extract witness types from SimplicityHL source code.
@@ -100,9 +146,12 @@ export interface InitOutput {
   readonly __wbg_compiler_free: (a: number, b: number) => void;
   readonly __wbg_keypair_free: (a: number, b: number) => void;
   readonly __wbg_program_free: (a: number, b: number) => void;
+  readonly __wbg_pst_free: (a: number, b: number) => void;
   readonly compiler: (a: any) => [number, number, number];
   readonly compiler_compile: (a: number, b: any, c: any) => [number, number, number];
   readonly keypair: (a: any) => [number, number, number];
+  readonly keypair_publicKey: (a: number) => any;
+  readonly keypair_signEcdsa: (a: number, b: any) => any;
   readonly keypair_signSchnorr: (a: number, b: any) => any;
   readonly keypair_xOnlyPublicKey: (a: number) => any;
   readonly paramTypes: (a: any) => [number, number, number];
@@ -113,7 +162,15 @@ export interface InitOutput {
   readonly program_redeemTx: (a: number, b: any) => [number, number, number];
   readonly program_toJSON: (a: number) => any;
   readonly program_witnessTypes: (a: number) => [number, number, number];
+  readonly pset: (a: any) => [number, number, number];
+  readonly psetToTx: (a: any) => [number, number, number];
+  readonly pst: (a: any) => [number, number, number];
+  readonly pst_toPset: (a: number) => [number, number, number];
+  readonly pst_toSignedHex: (a: number, b: number) => [number, number, number, number];
+  readonly pst_toTx: (a: number) => [number, number, number];
   readonly splitPsbt: (a: any) => [number, number, number];
+  readonly splitPsbtSigned: (a: number, b: any) => [number, number, number, number];
+  readonly tx: (a: any) => [number, number, number];
   readonly witnessTypes: (a: any) => [number, number, number];
   readonly rust_0_6_malloc: (a: number) => number;
   readonly rust_0_6_free: (a: number) => void;

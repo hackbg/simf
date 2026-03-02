@@ -16,6 +16,12 @@ function _assertBoolean(n) {
     }
 }
 
+function _assertClass(instance, klass) {
+    if (!(instance instanceof klass)) {
+        throw new Error(`expected instance of ${klass.name}`);
+    }
+}
+
 function _assertNum(n) {
     if (typeof(n) !== 'number') throw new Error(`expected a number argument, found ${typeof(n)}`);
 }
@@ -225,6 +231,10 @@ const ProgramFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_program_free(ptr >>> 0, 1));
 
+const PstFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_pst_free(ptr >>> 0, 1));
+
 /**
  * A SimplicityHL compiler, bound to for a particular chain by address config and genesis block.
  */
@@ -292,7 +302,28 @@ export class Keypair {
         wasm.__wbg_keypair_free(ptr, 0);
     }
     /**
-     * Perform Schnorr signing (for witnesses).
+     * Tweaked public key for authenticating in programs.
+     * @returns {Uint8Array}
+     */
+    publicKey() {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ret = wasm.keypair_publicKey(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Perform ECDSA signing (for simple transactions).
+     * @param {Uint8Array} message
+     * @returns {Uint8Array}
+     */
+    signEcdsa(message) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ret = wasm.keypair_signEcdsa(this.__wbg_ptr, message);
+        return ret;
+    }
+    /**
+     * Perform Schnorr signing (for taproot/witnesses).
      * @param {Uint8Array} message
      * @returns {Uint8Array}
      */
@@ -445,6 +476,85 @@ export class Program {
 }
 if (Symbol.dispose) Program.prototype[Symbol.dispose] = Program.prototype.free;
 
+export class Pst {
+    constructor() {
+        throw new Error('cannot invoke `new` directly');
+    }
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(Pst.prototype);
+        obj.__wbg_ptr = ptr;
+        PstFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        PstFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_pst_free(ptr, 0);
+    }
+    /**
+     * Simplified sign procedure.
+     * @param {Keypair} keypair
+     * @returns {string}
+     */
+    toSignedHex(keypair) {
+        let deferred2_0;
+        let deferred2_1;
+        try {
+            if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+            _assertNum(this.__wbg_ptr);
+            _assertClass(keypair, Keypair);
+            if (keypair.__wbg_ptr === 0) {
+                throw new Error('Attempt to use a moved value');
+            }
+            const ret = wasm.pst_toSignedHex(this.__wbg_ptr, keypair.__wbg_ptr);
+            var ptr1 = ret[0];
+            var len1 = ret[1];
+            if (ret[3]) {
+                ptr1 = 0; len1 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred2_0 = ptr1;
+            deferred2_1 = len1;
+            return getStringFromWasm0(ptr1, len1);
+        } finally {
+            wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+        }
+    }
+    /**
+     * Show inner [Transaction].
+     * @returns {object}
+     */
+    toTx() {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ret = wasm.pst_toTx(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * Show [PartiallySignedTransaction]
+     * @returns {any}
+     */
+    toPset() {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ret = wasm.pst_toPset(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+}
+if (Symbol.dispose) Pst.prototype[Symbol.dispose] = Pst.prototype.free;
+
 /**
  * Create compiler, providing chain constants.
  * @param {any} options
@@ -485,11 +595,91 @@ export function paramTypes(source) {
 }
 
 /**
+ * Construct a [PartiallySignedTransaction] from [Input]s and [Output]s.
+ * @param {object} arg
+ * @returns {any}
+ */
+export function pset(arg) {
+    const ret = wasm.pset(arg);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Construct a [PartiallySignedTransaction] from [Input]s and [Output]s
+ * then extract the inner transaction.
+ * @param {object} arg
+ * @returns {object}
+ */
+export function psetToTx(arg) {
+    const ret = wasm.psetToTx(arg);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {object} arg
+ * @returns {Pst}
+ */
+export function pst(arg) {
+    const ret = wasm.pst(arg);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return Pst.__wrap(ret[0]);
+}
+
+/**
  * @param {any} options
  * @returns {any}
  */
 export function splitPsbt(options) {
     const ret = wasm.splitPsbt(options);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {Keypair} signer
+ * @param {any} options
+ * @returns {string}
+ */
+export function splitPsbtSigned(signer, options) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        _assertClass(signer, Keypair);
+        if (signer.__wbg_ptr === 0) {
+            throw new Error('Attempt to use a moved value');
+        }
+        const ret = wasm.splitPsbtSigned(signer.__wbg_ptr, options);
+        var ptr1 = ret[0];
+        var len1 = ret[1];
+        if (ret[3]) {
+            ptr1 = 0; len1 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred2_0 = ptr1;
+        deferred2_1 = len1;
+        return getStringFromWasm0(ptr1, len1);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
+}
+
+/**
+ * Construct a [Transaction] from [TxIn]s and [TxOut]s.
+ * @param {object} arg
+ * @returns {object}
+ */
+export function tx(arg) {
+    const ret = wasm.tx(arg);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -642,6 +832,9 @@ function __wbg_get_imports() {
         const ret = arg0.crypto;
         return ret;
     }, arguments) };
+    imports.wbg.__wbg_debug_9d0c87ddda3dc485 = function() { return logError(function (arg0) {
+        console.debug(arg0);
+    }, arguments) };
     imports.wbg.__wbg_error_7534b8e9a36f1ab4 = function() { return logError(function (arg0, arg1) {
         let deferred0_0;
         let deferred0_1;
@@ -653,14 +846,27 @@ function __wbg_get_imports() {
             wasm.__wbindgen_free(deferred0_0, deferred0_1, 1);
         }
     }, arguments) };
+    imports.wbg.__wbg_from_29a8414a7a7cd19d = function() { return logError(function (arg0) {
+        const ret = Array.from(arg0);
+        return ret;
+    }, arguments) };
     imports.wbg.__wbg_getRandomValues_b8f5dbd5f3995a9e = function() { return handleError(function (arg0, arg1) {
         arg0.getRandomValues(arg1);
+    }, arguments) };
+    imports.wbg.__wbg_get_6b7bd52aca3f9671 = function() { return logError(function (arg0, arg1) {
+        const ret = arg0[arg1 >>> 0];
+        return ret;
     }, arguments) };
     imports.wbg.__wbg_get_af9dab7e9603ea93 = function() { return handleError(function (arg0, arg1) {
         const ret = Reflect.get(arg0, arg1);
         return ret;
     }, arguments) };
     imports.wbg.__wbg_length_22ac23eaec9d8053 = function() { return logError(function (arg0) {
+        const ret = arg0.length;
+        _assertNum(ret);
+        return ret;
+    }, arguments) };
+    imports.wbg.__wbg_length_d45040a40c570362 = function() { return logError(function (arg0) {
         const ret = arg0.length;
         _assertNum(ret);
         return ret;

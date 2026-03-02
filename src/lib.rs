@@ -3,6 +3,7 @@ use std::{str::FromStr, sync::Arc};
 use wasm_bindgen::prelude::*;
 #[allow(unused)] use js_sys::*;
 #[allow(unused)] use bitcoin_hashes::Hash;
+#[allow(unused)] use elements_miniscript::psbt::PsbtExt;
 #[allow(unused)] use simplicityhl::{
     CompiledProgram, SatisfiedProgram, TemplateProgram,
     Arguments, Parameters, Value, WitnessTypes, WitnessValues,
@@ -18,13 +19,14 @@ use wasm_bindgen::prelude::*;
     },
     elements::{
         self,
-        Address, AddressParams, AssetId, AssetIssuance, LockTime, OutPoint, Script, Sequence,
-        Transaction, Txid, TxIn, TxInWitness, TxOut, TxOutWitness,
+        Address, AddressParams, AssetId, AssetIssuance, EcdsaSighashType, LockTime, OutPoint,
+        Script, Sequence, Transaction, Txid, TxIn, TxInWitness, TxOut, TxOutWitness,
         confidential::{Asset, Nonce, Value as TxValue},
         encode::deserialize as deserialize_tx,
         hash_types::BlockHash,
-        pset::{PartiallySignedTransaction, serialize::Serialize,},
-        secp256k1_zkp::{self as secp256k1, SECP256K1, XOnlyPublicKey},
+        pset::{PartiallySignedTransaction, Input, Output, serialize::Serialize},
+        secp256k1_zkp::{self as secp256k1, ecdsa, SECP256K1, XOnlyPublicKey},
+        sighash::SighashCache,
         schnorr::UntweakedPublicKey,
         taproot::{ControlBlock, LeafVersion, TaprootBuilder, TaprootSpendInfo},
     }
@@ -60,17 +62,17 @@ macro_rules! asserted(($expr:expr) => {
 });
 
 /// Map `Err` to friendly [JsError].
-macro_rules! expected(($msg:literal: $expr:expr) => {
+macro_rules! try_(($msg:literal: $expr:expr) => {
     $expr.map_err(|_e|JsError::new(&format!("failed: {}", $msg)))
 });
 
 /// Map `Err` to detailed friendly [JsError] if it implements [Debug].
-#[allow(unused)] macro_rules! expected_debug(($msg:literal: $expr:expr) => {
+#[allow(unused)] macro_rules! try_debug(($msg:literal: $expr:expr) => {
     $expr.map_err(|e|JsError::new(&format!("failed: {}: {:?}", $msg, e)))
 });
 
 /// Map `Err` to detailed friendly [JsError] if it implements [Display].
-macro_rules! expected_display(($msg:literal: $expr:expr) => {
+macro_rules! try_display(($msg:literal: $expr:expr) => {
     $expr.map_err(|e|JsError::new(&format!("failed: {}: {}", $msg, e)))
 });
 
@@ -133,13 +135,11 @@ type Maybe<T> = Result<T, JsError>;
 
 #[wasm_bindgen] impl Keypair {
 
-    /// Perform Schnorr signing (for witnesses).
-    #[wasm_bindgen(js_name = "signSchnorr")]
-    pub fn sign_schnorr (&self, message: Uint8Array) -> Uint8Array {
-        let mut bytes = [0u8;32];
-        message.copy_to(&mut bytes);
-        let result = Uint8Array::new_with_length(64);
-        result.copy_from(&self.0.sign_schnorr(secp256k1::Message::from_digest(bytes)).serialize());
+    /// Tweaked public key for authenticating in programs.
+    #[wasm_bindgen(js_name = "publicKey")]
+    pub fn public_key (&self) -> Uint8Array {
+        let result = Uint8Array::new_with_length(33);
+        result.copy_from(&self.0.public_key().serialize());
         result
     }
 
@@ -151,6 +151,163 @@ type Maybe<T> = Result<T, JsError>;
         result
     }
 
+    /// Perform Schnorr signing (for taproot/witnesses).
+    #[wasm_bindgen(js_name = "signSchnorr")]
+    pub fn sign_schnorr (&self, message: Uint8Array) -> Uint8Array {
+        let mut bytes = [0u8;32];
+        message.copy_to(&mut bytes);
+        let message = secp256k1::Message::from_digest(bytes);
+        let result = Uint8Array::new_with_length(64);
+        result.copy_from(&self.0.sign_schnorr(message).serialize());
+        result
+    }
+
+    /// Perform ECDSA signing (for simple transactions).
+    #[wasm_bindgen(js_name = "signEcdsa")]
+    pub fn sign_ecdsa (&self, message: Uint8Array) -> Uint8Array {
+        let mut bytes = [0u8;32];
+        message.copy_to(&mut bytes);
+        let message = secp256k1::Message::from_digest(bytes);
+        let result = Uint8Array::new_with_length(64);
+        result.copy_from(
+            &secp256k1::SECP256K1.sign_ecdsa(&message, &self.0.secret_key()).serialize_der()
+        );
+        result
+    }
+}
+
+#[wasm_bindgen(js_name = splitPsbtSigned)]
+pub fn split_psbt_signed (signer: &Keypair, options: &JsValue) -> Maybe<String> {
+    let (psbt, _) = split_psbt_impl(
+        &get!(options, "previous",  arg_tx)?,
+        &get!(options, "sender",    arg_address)?,
+        &get!(options, "recipient", arg_address)?,
+        get!(options, "amount",     arg_sats)?,
+        get!(options, "fee",        arg_sats)?
+    )?;
+    Pst(psbt).to_signed_hex(signer)
+}
+
+#[wasm_bindgen(js_name = splitPsbt)]
+pub fn split_psbt (options: &JsValue) -> Maybe<JsValue> {
+    let (psbt, _) = split_psbt_impl(
+        &get!(options, "previous",  arg_tx)?,
+        &get!(options, "sender",    arg_address)?,
+        &get!(options, "recipient", arg_address)?,
+        get!(options, "amount",     arg_sats)?,
+        get!(options, "fee",        arg_sats)?
+    )?;
+    let bytes = try_!("extract final tx:": psbt.extract_tx())?.serialize();
+    match JSON::parse(serde_json::to_string(&psbt)?.as_str()) {
+        Ok(psbt) => {
+            set!(psbt, "bytes", ret_u8a(&bytes));
+            set!(psbt, "hex",   hex::encode(&bytes));
+            Ok(psbt)
+        }
+        Err(_)   => err!("failed to deserialize interim redeem psbt")
+    }
+}
+
+fn split_psbt_impl (
+    previous: &Transaction, sender: &Address, recipient: &Address, amount: u64, fee: u64
+) -> Maybe<(PartiallySignedTransaction, TxOut)> {
+    let (previous_output, utxo) = find_utxo(&previous, &sender)?;
+    if let Some(value) = utxo.value.explicit() {
+        let asset = utxo.asset.explicit().unwrap();
+        let inputs = vec![tx_input(previous_output)];
+        let mut outputs = vec![tx_output(asset, recipient.clone(), amount)];
+        let charged = amount + fee;
+        if charged < value {
+            let change = value - charged;
+            outputs.push(tx_output(asset, sender.clone(), change));
+        }
+        outputs.push(elements::TxOut::new_fee(fee, asset));
+        Ok((PartiallySignedTransaction::from_tx(transaction(inputs, outputs)), utxo))
+    } else {
+        err!("need explicit utxo")
+    }
+}
+
+/// Construct a [Transaction] from [TxIn]s and [TxOut]s.
+#[wasm_bindgen(js_name = tx)]
+pub fn tx (arg: Object) -> Maybe<Object> {
+    let inputs = get!(arg, "inputs",  arg_tx_ins)?;
+    let outputs = get!(arg, "outputs", arg_tx_outs)?;
+    let tx = transaction(inputs, outputs);
+    ret_tx(&tx)
+}
+
+/// Construct a [PartiallySignedTransaction] from [Input]s and [Output]s.
+#[wasm_bindgen(js_name = pset)]
+pub fn pset (arg: Object) -> Maybe<JsValue> {
+    let mut pset = PartiallySignedTransaction::new_v2();
+    for input in get!(arg, "inputs", arg_pset_ins)? { pset.add_input(input); }
+    for output in get!(arg, "outputs", arg_pset_outs)? { pset.add_output(output); }
+    ret_pset(&pset)
+}
+
+/// Construct a [PartiallySignedTransaction] from [Input]s and [Output]s
+/// then extract the inner transaction.
+#[wasm_bindgen(js_name = psetToTx)]
+pub fn pset_to_tx (arg: Object) -> Maybe<Object> {
+    let mut pset = PartiallySignedTransaction::new_v2();
+    for input in get!(arg, "inputs", arg_pset_ins)? { pset.add_input(input); }
+    for output in get!(arg, "outputs", arg_pset_outs)? { pset.add_output(output); }
+    ret_tx(&extract_tx(&pset)?)
+}
+
+#[wasm_bindgen(js_name = pst)]
+pub fn pst (arg: Object) -> Maybe<Pst> {
+    let mut pset = PartiallySignedTransaction::new_v2();
+    for input  in get!(arg, "inputs", arg_pset_ins)?   { pset.add_input(input.clone());   }
+    for output in get!(arg, "outputs", arg_pset_outs)? { pset.add_output(output.clone()); }
+    Ok(Pst(pset))
+}
+
+#[wasm_bindgen] pub struct Pst (PartiallySignedTransaction);
+
+#[wasm_bindgen] impl Pst {
+    /// Show [PartiallySignedTransaction]
+    #[wasm_bindgen(js_name = toPset)] pub fn to_pset (&self) -> Maybe<JsValue> {
+        ret_pset(&self.0)
+    }
+    /// Show inner [Transaction].
+    #[wasm_bindgen(js_name = toTx)]
+    pub fn to_tx (&self) -> Maybe<Object> {
+        ret_tx(&self.tx()?)
+    }
+    /// Simplified sign procedure.
+    #[wasm_bindgen(js_name = toSignedHex)]
+    pub fn to_signed_hex (&self, keypair: &Keypair) -> Maybe<String> {
+      let mut pset = self.0.clone();
+      let tx = extract_tx(&pset)?;
+      let mut sighash_cache = SighashCache::new(&tx);
+      let mut signature_added = 0;
+      let public_key = keypair.public_key();
+      let genesis_hash = BlockHash::all_zeros(); // not used at all for sighash calculation (?)
+      let msgs = pset.inputs().iter().enumerate().map(|(index, input)|Ok(
+          pset.sighash_msg(index, &mut sighash_cache, None, genesis_hash)?.to_secp_msg()
+      )).collect::<Maybe<Vec<_>>>()?;
+      for (i, input) in pset.inputs_mut().iter_mut().enumerate() {
+          let sig = secp256k1::SECP256K1.sign_ecdsa(&msgs[i], &keypair.0.secret_key());
+          let sig = sig.serialize_der();
+          let mut sig = Vec::from(&sig[..]);
+          sig.push(EcdsaSighashType::All as u8);
+          input.partial_sigs.insert(keypair.0.public_key().into(), sig);
+      }
+      pset_to_hex(&pset)
+    }
+    fn tx (&self) -> Maybe<Transaction> {
+        extract_tx(&self.0)
+    }
+}
+
+fn extract_tx (pset: &PartiallySignedTransaction) -> Maybe<Transaction> {
+    try_!("extract tx from pset:": pset.extract_tx())
+}
+
+fn pset_to_hex (pset: &PartiallySignedTransaction) -> Maybe<String> {
+  Ok(hex::encode(&extract_tx(&pset)?.serialize()))
 }
 
 /// Create compiler, providing chain constants.
@@ -171,10 +328,10 @@ type Maybe<T> = Result<T, JsError>;
 #[wasm_bindgen(js_name = paramTypes)]
 pub fn param_types (source: JsString) -> Maybe<Object> {
     let source: Arc<str> = source.as_string().unwrap_or_default().into();
-    let template = expected_display!("parse error": TemplateProgram::new(source))?;
+    let template = try_display!("parse error": TemplateProgram::new(source))?;
     let result   = Object::new();
     for (k, v) in template.parameters().iter() {
-        expected!("set": Reflect::set(&result, &format!("{k}").into(), &format!("{v}").into()))?;
+        try_!("set": Reflect::set(&result, &format!("{k}").into(), &format!("{v}").into()))?;
     }
     Ok(result)
 }
@@ -183,10 +340,10 @@ pub fn param_types (source: JsString) -> Maybe<Object> {
 #[wasm_bindgen(js_name = witnessTypes)]
 pub fn witness_types (source: JsString) -> Maybe<Object> {
     let source: Arc<str> = source.as_string().unwrap_or_default().into();
-    let template = expected_display!("parse error": TemplateProgram::new(source))?;
+    let template = try_display!("parse error": TemplateProgram::new(source))?;
     let result   = Object::new();
     for (k, v) in template.witness_types().iter() {
-        expected!("set": Reflect::set(&result, &format!("{k}").into(), &format!("{v}").into()))?;
+        try_!("set": Reflect::set(&result, &format!("{k}").into(), &format!("{v}").into()))?;
     }
     Ok(result)
 }
@@ -207,9 +364,9 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
         if options.is_object() {
             args = get!(options, "args", arg_args)?;
         }
-        let template = expected_display!("parse error":
+        let template = try_display!("parse error":
             TemplateProgram::new(source.clone()))?;
-        let compiled = expected_display!("compile error":
+        let compiled = try_display!("compile error":
             CompiledProgram::new(source.clone(), args.clone(), true))?;
         Ok(Program {
             source:  source.clone().into(),
@@ -247,7 +404,7 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
     pub fn param_types (&self) -> Maybe<Object> {
         let result = Object::new();
         for (k, v) in self.params.iter() {
-            expected!("set": Reflect::set(&result, &format!("{k}").into(), &format!("{v}").into()))?;
+            try_!("set": Reflect::set(&result, &format!("{k}").into(), &format!("{v}").into()))?;
         }
         Ok(result)
     }
@@ -257,7 +414,7 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
     pub fn witness_types (&self) -> Maybe<Object> {
         let result = Object::new();
         for (k, v) in self.witness.iter() {
-            expected!("set": Reflect::set(&result, &format!("{k}").into(), &format!("{v}").into()))?;
+            try_!("set": Reflect::set(&result, &format!("{k}").into(), &format!("{v}").into()))?;
         }
         Ok(result)
     }
@@ -266,13 +423,14 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
     /// For manual signing.
     #[wasm_bindgen(js_name = commitPsbt)]
     pub fn commit_psbt (&self, options: &JsValue) -> Maybe<JsValue> {
-        match JSON::parse(serde_json::to_string(&split_psbt_impl(
+        let (psbt, _) = split_psbt_impl(
             &get!(options, "previous", arg_tx)?,
             &get!(options, "sender",   arg_address)?,
             &self.p2tr()?,
-            get!(options, "amount",   arg_sats)?,
-            get!(options, "fee",      arg_sats)?
-        )?)?.as_str()) {
+            get!(options, "amount",    arg_sats)?,
+            get!(options, "fee",       arg_sats)?
+        )?;
+        match JSON::parse(serde_json::to_string(&psbt)?.as_str()) {
             Ok(psbt) => Ok(psbt),
             Err(_)   => err!("failed to deserialize interim commit psbt")
         }
@@ -283,8 +441,8 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
             &get!(options, "previous",  arg_tx)?,
             &self.p2tr()?,
             &get!(options, "recipient", arg_address)?,
-            get!(options, "amount",    arg_sats)?,
-            get!(options, "fee",       arg_sats)?
+            get!(options, "amount",     arg_sats)?,
+            get!(options, "fee",        arg_sats)?
         )
     }
 
@@ -318,7 +476,7 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
         let wit = get!(options, "witness", arg_witness)?;
         let (mut psbt, utxo) = self.redeem_psbt_utxo(&options)?;
         let env = self.env(&psbt, vec![ElementsUtxo::from(utxo)])?;
-        let sat = expected!("satisfy": self.compiled.satisfy_with_env(wit, Some(&env)))?;
+        let sat = try_!("satisfy": self.compiled.satisfy_with_env(wit, Some(&env)))?;
         let (program_bytes, witness_bytes) = sat.redeem().encode_to_vec();
         psbt.inputs_mut()[0].final_script_witness = Some(vec![
             witness_bytes,
@@ -326,12 +484,11 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
             self.cmr_vec(),
             self.control_block()?.serialize(),
         ]);
-        let tx = expected!("extract final tx:": psbt.extract_tx())?;
-        ret_tx(&tx)
+        ret_tx(&try_!("extract final tx:": psbt.extract_tx())?)
     }
 
     fn env (&self, psbt: &PartiallySignedTransaction, ins: Vec<ElementsUtxo>) -> Maybe<Env> {
-        let tx = Arc::new(expected!("extract preliminary tx:": psbt.extract_tx())?);
+        let tx = Arc::new(try_!("extract preliminary tx:": psbt.extract_tx())?);
         Ok(Env::new(
             tx.clone(), ins, 0, self.cmr(), self.control_block()?, None, self.genesis.as_ref().clone()
         ))
@@ -363,8 +520,8 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
     fn tap (&self) -> Maybe<TaprootSpendInfo> {
         let scr = self.script();
         let tap = TaprootBuilder::new();
-        let tap = expected!("taproot: add leaf": tap.add_leaf_with_ver(0, scr, leaf_version()))?;
-        let tap = expected!("taproot: finalize": tap.finalize(&SECP256K1, unspendable()?))?;
+        let tap = try_!("taproot: add leaf": tap.add_leaf_with_ver(0, scr, leaf_version()))?;
+        let tap = try_!("taproot: finalize": tap.finalize(&SECP256K1, unspendable()?))?;
         Ok(tap)
     }
 
@@ -381,46 +538,12 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
 
 }
 
-#[wasm_bindgen(js_name = splitPsbt)]
-pub fn split_psbt (options: &JsValue) -> Maybe<JsValue> {
-    match JSON::parse(serde_json::to_string(&split_psbt_impl(
-        &get!(options, "previous",  arg_tx)?,
-        &get!(options, "sender",    arg_address)?,
-        &get!(options, "recipient", arg_address)?,
-        get!(options, "amount",     arg_sats)?,
-        get!(options, "fee",        arg_sats)?
-    )?.0)?.as_str()) {
-        Ok(psbt) => Ok(psbt),
-        Err(_)   => err!("failed to deserialize interim redeem psbt")
-    }
-}
-
-fn split_psbt_impl (
-    previous: &Transaction, sender: &Address, recipient: &Address, amount: u64, fee: u64
-) -> Maybe<(PartiallySignedTransaction, TxOut)> {
-    let (previous_output, utxo) = find_utxo(&previous, &sender)?;
-    if let Some(value) = utxo.value.explicit() {
-        let asset = utxo.asset.explicit().unwrap();
-        let inputs = vec![tx_input(previous_output)];
-        let mut outputs = vec![tx_output(asset, recipient.clone(), amount)];
-        let charged = amount + fee;
-        if charged < value {
-            let change = value - charged;
-            outputs.push(tx_output(asset, sender.clone(), change));
-        }
-        outputs.push(elements::TxOut::new_fee(fee, asset));
-        Ok((PartiallySignedTransaction::from_tx(transaction(inputs, outputs)), utxo))
-    } else {
-        err!("need explicit utxo")
-    }
-}
-
 /// BIP-0341's NUMS key (magic unspendable key).
 ///
 /// Taken from `SY:?`, whereas `SC:?` seems to use deployer's key.
 ///
 fn unspendable () -> Maybe<XOnlyPublicKey> {
-    expected!("constant failed to deserialize: unspendable key": XOnlyPublicKey::from_str(
+    try_!("constant failed to deserialize: unspendable key": XOnlyPublicKey::from_str(
         "50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0"
     ))
 }
@@ -455,15 +578,61 @@ fn tx_output (asset_id: AssetId, recipient: Address, value: u64) -> TxOut {
 
 fn arg_address (x: JsValue) -> Maybe<Address> {
     let address = required!("addr: not string": x.as_string())?;
-    let address = expected!("addr: not parsed": Address::from_str(&address))?;
+    let address = try_!("addr: not parsed": Address::from_str(&address))?;
     Ok(address)
 }
 
 fn arg_tx (bytes: JsValue) -> Maybe<Transaction> {
     let bytes = required!("tx bytes: not string": bytes.as_string())?;
-    let bytes = expected!("tx bytes: not base16": hex::decode(bytes.trim()))?;
-    let tx    = expected!("tx bytes: not parsed": deserialize_tx(&bytes))?;
+    let bytes = try_!("tx bytes: not base16": hex::decode(bytes.trim()))?;
+    let tx    = try_!("tx bytes: not parsed": deserialize_tx(&bytes))?;
     Ok(tx)
+}
+
+fn arg_tx_ins (array: JsValue) -> Maybe<Vec<TxIn>> {
+    let mut inputs = vec![];
+    for input in Array::from(&array).iter() {
+        let input = try_!("input: couldn't serialize": JSON::stringify(&input))?;
+        let input = try_!("input: couldn't deserialize":
+            serde_json::from_str(&input.as_string().unwrap_or_default()))?;
+        inputs.push(input);
+    }
+    Ok(inputs)
+}
+
+fn arg_tx_outs (array: JsValue) -> Maybe<Vec<TxOut>> {
+    let mut outputs = vec![];
+    for output in Array::from(&array).iter() {
+        let output = try_!("output: couldn't serialize": JSON::stringify(&output))?;
+        debug!("output: {output}");
+        let output = try_display!("output: couldn't deserialize":
+            serde_json::from_str(&output.as_string().unwrap_or_default()))?;
+        outputs.push(output);
+    }
+    Ok(outputs)
+}
+
+fn arg_pset_ins (array: JsValue) -> Maybe<Vec<Input>> {
+    let mut inputs = vec![];
+    for input in Array::from(&array).iter() {
+        let input = try_!("input: couldn't serialize": JSON::stringify(&input))?;
+        let input = try_!("input: couldn't deserialize":
+            serde_json::from_str(&input.as_string().unwrap_or_default()))?;
+        inputs.push(input);
+    }
+    Ok(inputs)
+}
+
+fn arg_pset_outs (array: JsValue) -> Maybe<Vec<Output>> {
+    let mut outputs = vec![];
+    for output in Array::from(&array).iter() {
+        let output = try_!("output: couldn't serialize": JSON::stringify(&output))?;
+        debug!("output: {output}");
+        let output = try_display!("output: couldn't deserialize":
+            serde_json::from_str(&output.as_string().unwrap_or_default()))?;
+        outputs.push(output);
+    }
+    Ok(outputs)
 }
 
 fn arg_string (input: JsValue) -> Maybe<String> {
@@ -476,13 +645,13 @@ fn arg_string (input: JsValue) -> Maybe<String> {
 
 fn arg_sats (input: JsValue) -> Maybe<u64> {
     if BigInt::is_type_of(&input) {
-        expected!("bigint->u64": u64::try_from(input))
+        try_!("bigint->u64": u64::try_from(input))
     } else if Number::is_type_of(&input) {
         warn!("number->u64: *10^8, use bigint to avoid precision issues");
-        expected!("number->u64": f64::try_from(input).map(|x|(x * 100000000.0) as u64))
+        try_!("number->u64": f64::try_from(input).map(|x|(x * 100000000.0) as u64))
     } else if JsString::is_type_of(&input) {
         warn!("string->u64: use bigint to avoid typing issues");
-        expected!("string->u64": u64::try_from(input))
+        try_!("string->u64": u64::try_from(input))
     } else {
         return err!("received {:?}: need integer", input.js_typeof())
     }
@@ -506,7 +675,7 @@ fn arg_args (args: JsValue) -> Maybe<Arguments> {
 fn arg_witness (wits: JsValue) -> Maybe<WitnessValues> {
     if wits.is_truthy() {
         if !wits.is_object() { return err!("wits: must be object") }
-        let wits = expected!("wits: failed to stringify": JSON::stringify(&wits))?;
+        let wits = try_!("wits: failed to stringify": JSON::stringify(&wits))?;
         if let Some(s) = wits.as_string() { return Ok(serde_json::from_str(&s)?); }
     }
     Ok(WitnessValues::default())
@@ -543,7 +712,6 @@ fn ret_u8a (bytes: &[u8]) -> Uint8Array {
     u8a
 }
 
-/// Wrap transaction info returned to JS-land.
 fn ret_tx (tx: &Transaction) -> Maybe<Object> {
     let bytes = tx.serialize();
     Ok(obj! {
@@ -551,4 +719,8 @@ fn ret_tx (tx: &Transaction) -> Maybe<Object> {
         "hex"   = hex::encode(&bytes),
         "tx"    = JSON::parse(serde_json::to_string(&tx)?.as_str()).expect("parse own tx"),
     })
+}
+
+fn ret_pset (tx: &PartiallySignedTransaction) -> Maybe<JsValue> {
+    Ok(JSON::parse(serde_json::to_string(&tx)?.as_str()).expect("parse own tx"))
 }

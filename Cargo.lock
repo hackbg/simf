@@ -276,6 +276,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "elements-miniscript"
+version = "0.4.0"
+source = "git+https://github.com/ElementsProject/elements-miniscript.git?rev=8a1ccd9a21341d44841e51852088ee5b4dc7b52c#8a1ccd9a21341d44841e51852088ee5b4dc7b52c"
+dependencies = [
+ "bitcoin",
+ "elements",
+ "miniscript",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -290,6 +300,7 @@ dependencies = [
  "cc",
  "console_error_panic_hook",
  "elements",
+ "elements-miniscript",
  "hex",
  "js-sys",
  "serde_json",
@@ -394,9 +405,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.178"
+version = "0.2.182"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37c93d8daa9d8a012fd8ab92f088405fb202ea0b6ab73ee2482ae66af4f42091"
+checksum = "6800badb6cb2082ffd7b6a67e6125bb39f18782f793520caee8cb8846be06112"
 
 [[package]]
 name = "memchr"

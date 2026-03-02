@@ -17,6 +17,8 @@ anyhow = "1"
 bitcoin_hashes = "0.14.1"
 console_error_panic_hook = "0.1.7"
 hex = "0.4.3"
+elements-miniscript = { git = "https://github.com/ElementsProject/elements-miniscript.git", rev = "8a1ccd9a21341d44841e51852088ee5b4dc7b52c" }
+#lwk_signer = { version = "0.15.0", default-features = false }
 js-sys = "0.3.70"
 serde_json = "1.0"
 simplicityhl = { path = "./deps/simplicityhl", features = ["serde"] }
