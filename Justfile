@@ -8,6 +8,18 @@ BUILD   := BUILDER + " build "
 RUN     := BUILDER + "run --rm -it"
 TTY     := RUN     + ""
 
+# Build container for WASM:
+IMG_WASM := "hackbg/fadroma-simplicity:build"
+VOL_WASM := " -v .:/build:rw "
+RUN_WASM := RUN + VOL_WASM + IMG_WASM
+TTY_WASM := TTY + VOL_WASM + IMG_WASM
+
+# wasm-pack invocation
+WASM_PACK := "time wasm-pack build --target web"
+
+# Remove redundant files from build dir:
+WASM_PKG := "rm -v pkg/package.json pkg/.gitignore pkg/README.md"
+
 # Rebuild in debug mode and test
 iterate:
   just build-debug
@@ -15,7 +27,7 @@ iterate:
 
 # Rebuild in release mode and test
 release:
-  just build-debug
+  just build-release
   just test
 
 # List tasks
@@ -51,18 +63,6 @@ build-img:
 # Build the test image.
 test-img:
   ${BUILD} --target test -t "${IMG_TEST}" .
-
-# Wasm container:
-IMG_WASM := "hackbg/fadroma-simplicity:build"
-VOL_WASM := " -v .:/build:rw "
-RUN_WASM := RUN + VOL_WASM + IMG_WASM
-TTY_WASM := TTY + VOL_WASM + IMG_WASM
-
-# wasm-pack invocation
-WASM_PACK := "time wasm-pack build --target web"
-
-# Remove redundant files from build dir:
-WASM_PKG := "rm -v pkg/package.json pkg/.gitignore pkg/README.md"
 
 # Open Bacon TUI to iterate on WASM modules in container.
 bacon:
