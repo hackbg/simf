@@ -119,6 +119,9 @@ macro_rules! obj(($($id:literal = $val:expr),+ $(,)?) => {{
 /// Concrete type of [ElementsEnv] used.
 pub type Env = simplicityhl::simplicity::jet::elements::ElementsEnv<Arc<Transaction>>;
 
+/// PSET/PSBT (partially-signed transaction = PST), paired with corresponding prevouts.
+pub type Signable = (PartiallySignedTransaction, Vec<TxOut>);
+
 /// Standard result type
 type Maybe<T> = Result<T, JsError>;
 
@@ -184,6 +187,19 @@ pub fn split_psbt_signed (signer: &Keypair, options: &JsValue) -> Maybe<String> 
     Pst(psbt).to_signed_hex(signer)
 }
 
+#[wasm_bindgen(js_name = splitMultiSigned)]
+pub fn split_psbt_multi_signed (signer: &Keypair, options: &JsValue) -> Maybe<String> {
+    let (mut psbt, utxos) = split_psbt_multi_wrap(options, None, None)?;
+    Pst(psbt).add_signatures(&utxos).to_signed_hex(signer)
+}
+
+#[wasm_bindgen(js_name = splitMulti)]
+pub fn split_psbt_multi_inspect (options: &JsValue) -> Maybe<JsValue> {
+    let (mut psbt, utxos) = split_psbt_multi_wrap(options, None, None)?;
+    let psbt = Pst(psbt).add_signatures(&utxos).0;
+    try_!("interim ser/de failed": JSON::parse(serde_json::to_string(&psbt)?.as_str()))
+}
+
 #[wasm_bindgen(js_name = split)]
 pub fn split_psbt (options: &JsValue) -> Maybe<JsValue> {
     let (psbt, _) = split_psbt_wrap(options, None, None)?;
@@ -198,25 +214,20 @@ pub fn split_psbt (options: &JsValue) -> Maybe<JsValue> {
     }
 }
 
-fn split_psbt_wrap (
-    options: &JsValue, sender: Option<Address>, recipient: Option<Address>,
-) -> Maybe<(PartiallySignedTransaction, Vec<TxOut>)> {
-    split_psbt_impl(
-        &get!(options, "previous",  arg_tx)?,
-        &match sender {
-            Some(sender) => sender, None => get!(options, "sender", arg_address)?
-        },
-        &match recipient {
-            Some(recipient) => recipient, None => get!(options, "recipient", arg_address)?
-        },
-        get!(options, "amount",     arg_sats)?,
-        get!(options, "fee",        arg_sats)?
-    )
+fn split_psbt_wrap (options: &JsValue, sender: Option<Address>, receiv: Option<Address>)
+    -> Maybe<Signable>
+{
+    let previous = get!(options, "previous",  arg_tx)?;
+    let sender = match sender { Some(s) => s, None => get!(options, "sender",    arg_address)? };
+    let receiv = match receiv { Some(r) => r, None => get!(options, "recipient", arg_address)? };
+    let amount = get!(options, "amount", arg_sats)?;
+    let fee = get!(options, "fee", arg_sats)?;
+    split_psbt_impl(&previous, &sender, &receiv, amount, fee)
 }
 
 fn split_psbt_impl (
     previous: &Transaction, sender: &Address, recipient: &Address, amount: u64, fee: u64
-) -> Maybe<(PartiallySignedTransaction, Vec<TxOut>)> {
+) -> Maybe<Signable> {
     let (outpoint, utxo) = find_utxo(&previous, &sender)?;
     if let Some(value) = utxo.value.explicit() {
         let asset = utxo.asset.explicit().unwrap();
@@ -234,28 +245,13 @@ fn split_psbt_impl (
     }
 }
 
-#[wasm_bindgen(js_name = splitMultiSigned)]
-pub fn split_psbt_multi_signed (signer: &Keypair, options: &JsValue) -> Maybe<String> {
-    let (mut psbt, utxos) = split_psbt_multi_wrap(options, None, None)?;
-    Pst(psbt).add_signatures(&utxos).to_signed_hex(signer)
-}
-
-#[wasm_bindgen(js_name = splitMulti)]
-pub fn split_psbt_multi_inspect (options: &JsValue) -> Maybe<JsValue> {
-    let (mut psbt, utxos) = split_psbt_multi_wrap(options, None, None)?;
-    let psbt = Pst(psbt).add_signatures(&utxos).0;
-    try_!("interim ser/de failed": JSON::parse(serde_json::to_string(&psbt)?.as_str()))
-}
-
 fn split_psbt_multi_wrap (
-    options: &JsValue,
-    sender: Option<Address>,
-    receiv: Option<Address>,
-) -> Maybe<(PartiallySignedTransaction, Vec<TxOut>)> {
-    let asset  = get!(options, "asset", arg_asset_id)?;
-    let utxos  = get!(options, "utxos", arg_utxos)?;
+    options: &JsValue, sender: Option<Address>, receiv: Option<Address>,
+) -> Maybe<Signable> {
+    let asset  = get!(options, "asset",  arg_asset_id)?;
+    let utxos  = get!(options, "utxos",  arg_utxos)?;
     let amount = get!(options, "amount", arg_sats)?;
-    let fee    = get!(options, "fee", arg_sats)?;
+    let fee    = get!(options, "fee",    arg_sats)?;
     let sender = match sender { Some(s) => s, None => get!(options, "sender",    arg_address)? };
     let receiv = match receiv { Some(r) => r, None => get!(options, "recipient", arg_address)? };
     split_psbt_multi_impl(asset, &utxos, &sender, &receiv, amount, fee)
@@ -268,7 +264,7 @@ fn split_psbt_multi_impl (
     recipient: &Address,
     amount:    u64,
     fee:       u64
-) -> Maybe<(PartiallySignedTransaction, Vec<TxOut>)> {
+) -> Maybe<Signable> {
     let mut total = 0;
     let mut inputs = vec![];
     let mut utxos  = vec![];
@@ -494,8 +490,19 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
         }
     }
 
-    fn redeem_psbt_utxo (&self, opts: &JsValue) -> Maybe<(PartiallySignedTransaction, Vec<TxOut>)> {
+    fn redeem_psbt_utxo (&self, opts: &JsValue) -> Maybe<Signable> {
         split_psbt_wrap(opts, Some(self.p2tr()?), None)
+    }
+
+    fn redeem_psbt_utxo_multi (&self, options: &JsValue) -> Maybe<Signable> {
+        split_psbt_multi_impl(
+            get!(options,  "asset",     arg_asset_id)?,
+            &get!(options, "utxos",     arg_utxos)?,
+            &self.p2tr()?,
+            &get!(options, "recipient", arg_address)?,
+            get!(options,  "amount",    arg_sats)?,
+            get!(options,  "fee",       arg_sats)?
+        )
     }
 
     /// Partially-signed redeem transaction without witnesses.
@@ -537,17 +544,6 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
             self.control_block()?.serialize(),
         ]);
         ret_tx(&try_!("extract final tx:": psbt.extract_tx())?)
-    }
-
-    fn redeem_psbt_utxo_multi (&self, options: &JsValue) -> Maybe<(PartiallySignedTransaction, Vec<TxOut>)> {
-        split_psbt_multi_impl(
-            get!(options,  "asset",     arg_asset_id)?,
-            &get!(options, "utxos",     arg_utxos)?,
-            &self.p2tr()?,
-            &get!(options, "recipient", arg_address)?,
-            get!(options,  "amount",    arg_sats)?,
-            get!(options,  "fee",       arg_sats)?
-        )
     }
 
     /// Partially-signed redeem transaction without witnesses.
@@ -800,7 +796,7 @@ fn arg_sats (input: JsValue) -> Maybe<u64> {
         try_!("Number -> sats (u64)": f64::try_from(input).map(|x|(x * 100000000.0) as u64))
     } else if JsString::is_type_of(&input) {
         warn!("String -> sats (u64): use BigInt to avoid typing issues");
-        try_!("String -> sats (u64)": u64::try_from(input))
+        try_debug!("String -> sats (u64)": u64::try_from(input))
     } else {
         return err!("sats: received {:?}: need integer", input.js_typeof())
     }
