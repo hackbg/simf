@@ -782,7 +782,7 @@ fn arg_vout (input: JsValue) -> Maybe<u32> {
     } else if Number::is_type_of(&input) {
         try_!("Number -> vout (u32)": f64::try_from(input))? as u32
     } else if JsString::is_type_of(&input) {
-        try_!("String -> vout (u32)": u64::try_from(input))? as u32
+        try_!("String -> vout (u32)": u64::from_str(&input.as_string().unwrap_or_default()))? as u32
     } else {
         return err!("vout: received {:?}: need integer", input.js_typeof())
     })
@@ -796,7 +796,7 @@ fn arg_sats (input: JsValue) -> Maybe<u64> {
         try_!("Number -> sats (u64)": f64::try_from(input).map(|x|(x * 100000000.0) as u64))
     } else if JsString::is_type_of(&input) {
         warn!("String -> sats (u64): use BigInt to avoid typing issues");
-        try_debug!("String -> sats (u64)": u64::try_from(input))
+        try_debug!("String -> sats (u64)": u64::from_str(&input.as_string().unwrap_or_default()))
     } else {
         return err!("sats: received {:?}: need integer", input.js_typeof())
     }
