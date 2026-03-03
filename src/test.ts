@@ -1,5 +1,5 @@
 #!/usr/bin/env -S deno run --allow-read --allow-env --allow-run --allow-write=/tmp/fadroma --allow-import=cdn.skypack.dev:443,deno.land:443 --allow-net=127.0.0.1:8941,liquidtestnet.com:443,blockstream.info:443
-import { deepStrictEqual as equal, rejects } from 'node:assert';
+import { deepStrictEqual as equal, rejects, throws } from 'node:assert';
 import * as SimplicityHL from './sdk.ts';
 import { pubECDSA } from 'npm:@scure/btc-signer/utils.js';
 import { p2wpkh } from 'npm:@scure/btc-signer';
@@ -8,6 +8,9 @@ import Test from '../../../library/Test.ts';
 import Fn from '../../../library/Fn.ts';
 
 const { is: Is, has: Has } = Test;
+
+/** Elementsregtest config. TODO: test on testnet. */
+const NETWORK = { bech32: 'ert', pubKeyHash: 0x6f, scriptHash: 0xc4, wif: 0xef, };
 
 /** Non-private key. */
 const SECRET = new Uint8Array(Array(32).fill(1));
@@ -20,6 +23,10 @@ const PUB_ECDSA = pubECDSA(SECRET);
 
 /** Test the SimplicityHL support in Fadroma. */
 export default Test(import.meta, 'SimplicityHL',
+
+  // Test SimplicityHL on localnet. TODO: test on Liquid Testnet
+  TestSimplicityHL(Bitcoin.ElementsRegtest),
+
   // Check that the API entrypoints are present on the WASM module:
   Test('WASM', () => SimplicityHL.Wasm(),
     Has('paramTypes',       Is('function')),
@@ -28,14 +35,52 @@ export default Test(import.meta, 'SimplicityHL',
     Has('keypair',          Is('function')),
     Has('pst',              Is('function')),
     Has('split',            Is('function')),
-    Has('splitSigned',      Is('function')),
+    Has('splitSigned',      Is('function'), TestSplitSigned()),
     Has('splitMulti',       Is('function')),
     Has('splitMultiSigned', Is('function'))),
-  // Test SimplicityHL on localnet.
-  TestSimplicityHL(Bitcoin.ElementsRegtest),
-  // TODO: Test SimplicityHL on remote testnet:
-  // TestSimplicityHL('liquidtestnet',  Bitcoin.LiquidTestnet),
+
 )
+
+function TestSplitSigned ({
+  secret1   = new Uint8Array(Array(32).fill(8)),
+  pubkey1   = pubECDSA(secret1),
+  sender    = p2wpkh(pubkey1, NETWORK).address,
+  secret2   = new Uint8Array(Array(32).fill(9)),
+  pubkey2   = pubECDSA(secret2),
+  recipient = p2wpkh(pubkey2, NETWORK).address,
+  amount    = '10000',
+  fee       = '5760',
+} = {}) {
+  throws(()=>splitSigned());
+  throws(()=>splitSigned({}));
+  throws(()=>splitSigned(KEYPAIR));
+  throws(()=>splitSigned(KEYPAIR, {}));
+  return Fn.Name('Test splitSigned', async (splitSigned: Fn) => {
+    let btc;
+    try {
+      btc = await Bitcoin.ElementsRegtest()
+      const { rpc, rest } = btc;
+      await rpc.createwallet(name);
+      await rpc.rescanblockchain();
+      // Fund sender from node's wallet
+      const id = await rpc.sendtoaddress(sender, String(100000));
+      await rpc.importaddress(sender);
+      await rpc.rescanblockchain();
+      // Fund recipient directly from sender.
+      const tx = await rest.tx(id);
+      const previous = tx.hex;
+      const options = { previous, sender, recipient, amount: '10000', fee: '5760' };
+      const signer = await SimplicityHL.Keypair(secret1);
+      const hex = splitSigned(signer, options);
+      const id2 = await rpc.sendrawtransaction(hex);
+      const tx2 = await rest.tx(id2);
+      await rpc.rescanblockchain();
+    } finally {
+      btc.kill();
+    }
+  })
+  process.exit(123);
+}
 
 /** Test SimplicityHL programs. */
 function TestSimplicityHL (Chain: typeof Bitcoin.ElementsRegtest) {
@@ -48,7 +93,7 @@ function TestSimplicityHL (Chain: typeof Bitcoin.ElementsRegtest) {
 
     // FIXME: These steps don't apply on remote testnet,
     // and can just be moved to localnet constructor options.
-    Bitcoin.Verbose(false), // Pipe the localnet's output to stderr
+    Bitcoin.Verbose(true), // Pipe the localnet's output to stderr
     Bitcoin.CreateWallet('test-simf', testHasBalance({ bitcoin: 0 })),
     Bitcoin.Rescan(testHasBalance(initial1)),
     async function fetchGenesisHash (context) {
@@ -150,8 +195,7 @@ function TestSimplicityHL (Chain: typeof Bitcoin.ElementsRegtest) {
       const id = await rpc.sendtoaddress(p2tr, String(1));
       const previous = testSplitTx(await rest.tx(id), p2tr, 1, cost).hex;
       // Create local spender wallet and import it to RPC:
-      const network = { bech32: 'ert', pubKeyHash: 0x6f, scriptHash: 0xc4, wif: 0xef, };
-      const recipient = p2wpkh(PUB_ECDSA, network).address;
+      const recipient = p2wpkh(PUB_ECDSA, NETWORK).address;
       await rpc.importaddress(recipient);
       // Note current balance:
       await rpc.rescanblockchain();
@@ -184,14 +228,14 @@ function testHasBalance <T> (balance: T) {
 }
 
 function testSplitTx (
-  tx: { hex: unknown, vout: unknown[] }, p2tr: string, amount: number, cost: number, _remaining?: number
+  tx: { hex: unknown, vout: unknown[] }, p2tr: string, amount: number, cost: number, remaining?: number
 ) {
   equal(tx.vout.length, 3);
-  const hasVout   = (f: Fn, t: string) => equal(tx.vout.filter(f).length, 1, `post deploy: ${t}`);
+  const hasVout   = (f: Fn, t: ()=>string) => equal(tx.vout.filter(f).length, 1, `post deploy: ${t(tx.vout.filter(f)[0])}`);
   const isBalance = (x: Bitcoin.Vout)=>((x.value===amount) && (x.scriptPubKey.address == p2tr));
   const isFee     = (x: Bitcoin.Vout)=>x.value===cost;
-  hasVout(isBalance, `balance: program ${p2tr} must receive ${amount}`);
-  hasVout(isFee,     `fee: deploy fee must be ${cost}`);
-  //hasVout((x: Bitcoin.Vout)=>x.value===bitcoin, `remaining: must be ${bitcoin}`);
+  hasVout(isBalance, v => `balance: program ${p2tr} must receive ${amount}, not ${v}`);
+  hasVout(isFee,     v => `fee: deploy fee must be ${cost}, not ${v}`);
+  //hasVout((x: Bitcoin.Vout)=>x.value===remaining, v => `remaining: must be ${v}`);
   return tx
 }
