@@ -22,13 +22,15 @@ const PUB_ECDSA = pubECDSA(SECRET);
 export default Test(import.meta, 'SimplicityHL',
   // Check that the API entrypoints are present on the WASM module:
   Test('WASM', () => SimplicityHL.Wasm(),
-    Has('pst',             Is('function')),
-    Has('keypair',         Is('function')),
-    Has('splitPsbt',       Is('function')),
-    Has('splitPsbtSigned', Is('function')),
-    Has('paramTypes',      Is('function')),
-    Has('witnessTypes',    Is('function')),
-    Has('compiler',        Is('function'))),
+    Has('paramTypes',       Is('function')),
+    Has('witnessTypes',     Is('function')),
+    Has('compiler',         Is('function')),
+    Has('keypair',          Is('function')),
+    Has('pst',              Is('function')),
+    Has('split',            Is('function')),
+    Has('splitSigned',      Is('function')),
+    Has('splitMulti',       Is('function')),
+    Has('splitMultiSigned', Is('function'))),
   // Test SimplicityHL on localnet.
   TestSimplicityHL(Bitcoin.ElementsRegtest),
   // TODO: Test SimplicityHL on remote testnet:

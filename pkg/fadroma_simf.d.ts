@@ -129,13 +129,13 @@ export function paramTypes(source: string): object;
 
 export function pst(arg: object): Pst;
 
-export function splitPsbt(options: any): any;
+export function split(options: any): any;
 
-export function splitPsbtMulti(options: any): any;
+export function splitMulti(options: any): any;
 
-export function splitPsbtMultiSigned(signer: Keypair, options: any): string;
+export function splitMultiSigned(signer: Keypair, options: any): string;
 
-export function splitPsbtSigned(signer: Keypair, options: any): string;
+export function splitSigned(signer: Keypair, options: any): string;
 
 /**
  * Extract witness types from SimplicityHL source code.
@@ -172,10 +172,10 @@ export interface InitOutput {
   readonly pst_toPset: (a: number) => [number, number, number];
   readonly pst_toSignedHex: (a: number, b: number) => [number, number, number, number];
   readonly pst_toTx: (a: number) => [number, number, number];
-  readonly splitPsbt: (a: any) => [number, number, number];
-  readonly splitPsbtMulti: (a: any) => [number, number, number];
-  readonly splitPsbtMultiSigned: (a: number, b: any) => [number, number, number, number];
-  readonly splitPsbtSigned: (a: number, b: any) => [number, number, number, number];
+  readonly split: (a: any) => [number, number, number];
+  readonly splitMulti: (a: any) => [number, number, number];
+  readonly splitMultiSigned: (a: number, b: any) => [number, number, number, number];
+  readonly splitSigned: (a: number, b: any) => [number, number, number, number];
   readonly witnessTypes: (a: any) => [number, number, number];
   readonly rust_0_6_malloc: (a: number) => number;
   readonly rust_0_6_free: (a: number) => void;

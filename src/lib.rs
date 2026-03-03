@@ -177,16 +177,16 @@ type Maybe<T> = Result<T, JsError>;
     }
 }
 
-#[wasm_bindgen(js_name = splitPsbtSigned)]
+#[wasm_bindgen(js_name = splitSigned)]
 pub fn split_psbt_signed (signer: &Keypair, options: &JsValue) -> Maybe<String> {
-    let (mut psbt, utxo) = split_psbt_impl_wrap(options)?;
+    let (mut psbt, utxo) = split_psbt_wrap(options)?;
     psbt.inputs_mut()[0].witness_utxo = Some(utxo);
     Pst(psbt).to_signed_hex(signer)
 }
 
-#[wasm_bindgen(js_name = splitPsbt)]
+#[wasm_bindgen(js_name = split)]
 pub fn split_psbt (options: &JsValue) -> Maybe<JsValue> {
-    let (psbt, _) = split_psbt_impl_wrap(options)?;
+    let (psbt, _) = split_psbt_wrap(options)?;
     let bytes = try_!("extract final tx:": psbt.extract_tx())?.serialize();
     match JSON::parse(serde_json::to_string(&psbt)?.as_str()) {
         Err(_) => err!("failed to deserialize interim redeem psbt"),
@@ -198,7 +198,7 @@ pub fn split_psbt (options: &JsValue) -> Maybe<JsValue> {
     }
 }
 
-fn split_psbt_impl_wrap (options: &JsValue) -> Maybe<(PartiallySignedTransaction, TxOut)> {
+fn split_psbt_wrap (options: &JsValue) -> Maybe<(PartiallySignedTransaction, TxOut)> {
     split_psbt_impl(
         &get!(options, "previous",  arg_tx)?,
         &get!(options, "sender",    arg_address)?,
@@ -228,30 +228,37 @@ fn split_psbt_impl (
     }
 }
 
-#[wasm_bindgen(js_name = splitPsbtMultiSigned)]
+#[wasm_bindgen(js_name = splitMultiSigned)]
 pub fn split_psbt_multi_signed (signer: &Keypair, options: &JsValue) -> Maybe<String> {
-    let (mut psbt, utxos) = split_psbt_multi_impl_wrap(options)?;
+    let (mut psbt, utxos) = split_psbt_multi_wrap(options, None, None)?;
     Pst(psbt).add_signatures(&utxos).to_signed_hex(signer)
 }
 
-#[wasm_bindgen(js_name = splitPsbtMulti)]
+#[wasm_bindgen(js_name = splitMulti)]
 pub fn split_psbt_multi_inspect (options: &JsValue) -> Maybe<JsValue> {
-    let (mut psbt, utxos) = split_psbt_multi_impl_wrap(options)?;
+    let (mut psbt, utxos) = split_psbt_multi_wrap(options, None, None)?;
     let psbt = Pst(psbt).add_signatures(&utxos).0;
     try_!("interim ser/de failed": JSON::parse(serde_json::to_string(&psbt)?.as_str()))
 }
 
-fn split_psbt_multi_impl_wrap (options: &JsValue)
-    -> Maybe<(PartiallySignedTransaction, Vec<TxOut>)>
-{
-    split_psbt_multi_impl(
-        get!(options,  "asset",     arg_asset_id)?,
-        &get!(options, "utxos",     arg_utxos)?,
-        &get!(options, "sender",    arg_address)?,
-        &get!(options, "recipient", arg_address)?,
-        get!(options,  "amount",    arg_sats)?,
-        get!(options,  "fee",       arg_sats)?
-    )
+fn split_psbt_multi_wrap (
+    options:   &JsValue,
+    sender:    Option<Address>,
+    recipient: Option<Address>,
+) -> Maybe<(PartiallySignedTransaction, Vec<TxOut>)> {
+    let asset  = get!(options, "asset", arg_asset_id)?;
+    let utxos  = get!(options, "utxos", arg_utxos)?;
+    let amount = get!(options, "amount", arg_sats)?;
+    let fee    = get!(options, "fee", arg_sats)?;
+    let sender = match sender {
+        Some(sender) => sender,
+        None => get!(options, "sender",    arg_address)?
+    };
+    let recipient = match recipient {
+        Some(recipient) => recipient,
+        None => get!(options, "recipient", arg_address)?
+    };
+    split_psbt_multi_impl(asset, &utxos, &sender, &recipient, amount, fee)
 }
 
 fn split_psbt_multi_impl (

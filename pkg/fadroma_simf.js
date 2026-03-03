@@ -655,8 +655,8 @@ export function pst(arg) {
  * @param {any} options
  * @returns {any}
  */
-export function splitPsbt(options) {
-    const ret = wasm.splitPsbt(options);
+export function split(options) {
+    const ret = wasm.split(options);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -667,8 +667,8 @@ export function splitPsbt(options) {
  * @param {any} options
  * @returns {any}
  */
-export function splitPsbtMulti(options) {
-    const ret = wasm.splitPsbtMulti(options);
+export function splitMulti(options) {
+    const ret = wasm.splitMulti(options);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -680,7 +680,7 @@ export function splitPsbtMulti(options) {
  * @param {any} options
  * @returns {string}
  */
-export function splitPsbtMultiSigned(signer, options) {
+export function splitMultiSigned(signer, options) {
     let deferred2_0;
     let deferred2_1;
     try {
@@ -688,7 +688,7 @@ export function splitPsbtMultiSigned(signer, options) {
         if (signer.__wbg_ptr === 0) {
             throw new Error('Attempt to use a moved value');
         }
-        const ret = wasm.splitPsbtMultiSigned(signer.__wbg_ptr, options);
+        const ret = wasm.splitMultiSigned(signer.__wbg_ptr, options);
         var ptr1 = ret[0];
         var len1 = ret[1];
         if (ret[3]) {
@@ -708,7 +708,7 @@ export function splitPsbtMultiSigned(signer, options) {
  * @param {any} options
  * @returns {string}
  */
-export function splitPsbtSigned(signer, options) {
+export function splitSigned(signer, options) {
     let deferred2_0;
     let deferred2_1;
     try {
@@ -716,7 +716,7 @@ export function splitPsbtSigned(signer, options) {
         if (signer.__wbg_ptr === 0) {
             throw new Error('Attempt to use a moved value');
         }
-        const ret = wasm.splitPsbtSigned(signer.__wbg_ptr, options);
+        const ret = wasm.splitSigned(signer.__wbg_ptr, options);
         var ptr1 = ret[0];
         var len1 = ret[1];
         if (ret[3]) {
