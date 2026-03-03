@@ -640,33 +640,6 @@ export function paramTypes(source) {
 }
 
 /**
- * Construct a [PartiallySignedTransaction] from [Input]s and [Output]s.
- * @param {object} arg
- * @returns {any}
- */
-export function pset(arg) {
-    const ret = wasm.pset(arg);
-    if (ret[2]) {
-        throw takeFromExternrefTable0(ret[1]);
-    }
-    return takeFromExternrefTable0(ret[0]);
-}
-
-/**
- * Construct a [PartiallySignedTransaction] from [Input]s and [Output]s
- * then extract the inner transaction.
- * @param {object} arg
- * @returns {object}
- */
-export function psetToTx(arg) {
-    const ret = wasm.psetToTx(arg);
-    if (ret[2]) {
-        throw takeFromExternrefTable0(ret[1]);
-    }
-    return takeFromExternrefTable0(ret[0]);
-}
-
-/**
  * @param {object} arg
  * @returns {Pst}
  */
@@ -756,19 +729,6 @@ export function splitPsbtSigned(signer, options) {
     } finally {
         wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
     }
-}
-
-/**
- * Construct a [Transaction] from [TxIn]s and [TxOut]s.
- * @param {object} arg
- * @returns {object}
- */
-export function tx(arg) {
-    const ret = wasm.tx(arg);
-    if (ret[2]) {
-        throw takeFromExternrefTable0(ret[1]);
-    }
-    return takeFromExternrefTable0(ret[0]);
 }
 
 /**

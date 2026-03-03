@@ -309,34 +309,6 @@ fn find_utxo (tx: &Transaction, address: &Address) -> Maybe<(OutPoint, TxOut)> {
     Ok((required!(outpoint)?, required!(tx_out)?))
 }
 
-/// Construct a [Transaction] from [TxIn]s and [TxOut]s.
-#[wasm_bindgen(js_name = tx)]
-pub fn tx (arg: Object) -> Maybe<Object> {
-    let inputs = get!(arg, "inputs",  arg_tx_ins)?;
-    let outputs = get!(arg, "outputs", arg_tx_outs)?;
-    let tx = transaction(inputs, outputs);
-    ret_tx(&tx)
-}
-
-/// Construct a [PartiallySignedTransaction] from [Input]s and [Output]s.
-#[wasm_bindgen(js_name = pset)]
-pub fn pset (arg: Object) -> Maybe<JsValue> {
-    let mut pset = PartiallySignedTransaction::new_v2();
-    for input in get!(arg, "inputs", arg_pset_ins)? { pset.add_input(input); }
-    for output in get!(arg, "outputs", arg_pset_outs)? { pset.add_output(output); }
-    ret_pset(&pset)
-}
-
-/// Construct a [PartiallySignedTransaction] from [Input]s and [Output]s
-/// then extract the inner transaction.
-#[wasm_bindgen(js_name = psetToTx)]
-pub fn pset_to_tx (arg: Object) -> Maybe<Object> {
-    let mut pset = PartiallySignedTransaction::new_v2();
-    for input in get!(arg, "inputs", arg_pset_ins)? { pset.add_input(input); }
-    for output in get!(arg, "outputs", arg_pset_outs)? { pset.add_output(output); }
-    ret_tx(&extract_tx(&pset)?)
-}
-
 #[wasm_bindgen(js_name = pst)]
 pub fn pst (arg: Object) -> Maybe<Pst> {
     let mut pset = PartiallySignedTransaction::new_v2();

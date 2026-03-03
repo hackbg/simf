@@ -17,7 +17,6 @@ const PUB_ECDSA = pubECDSA(SECRET);
 export default Test(import.meta, 'SimplicityHL',
   // Check that the API entrypoints are present on the WASM module:
   Test('WASM', () => SimplicityHL.Wasm(),
-    Has('tx',              Is('function')),
     Has('pst',             Is('function')),
     Has('keypair',         Is('function')),
     Has('splitPsbt',       Is('function')),

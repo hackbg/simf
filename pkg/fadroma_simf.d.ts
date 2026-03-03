@@ -127,17 +127,6 @@ export function keypair(secret: Uint8Array): Keypair;
  */
 export function paramTypes(source: string): object;
 
-/**
- * Construct a [PartiallySignedTransaction] from [Input]s and [Output]s.
- */
-export function pset(arg: object): any;
-
-/**
- * Construct a [PartiallySignedTransaction] from [Input]s and [Output]s
- * then extract the inner transaction.
- */
-export function psetToTx(arg: object): object;
-
 export function pst(arg: object): Pst;
 
 export function splitPsbt(options: any): any;
@@ -147,11 +136,6 @@ export function splitPsbtMulti(options: any): any;
 export function splitPsbtMultiSigned(signer: Keypair, options: any): string;
 
 export function splitPsbtSigned(signer: Keypair, options: any): string;
-
-/**
- * Construct a [Transaction] from [TxIn]s and [TxOut]s.
- */
-export function tx(arg: object): object;
 
 /**
  * Extract witness types from SimplicityHL source code.
@@ -184,8 +168,6 @@ export interface InitOutput {
   readonly program_redeemTxMulti: (a: number, b: any) => [number, number, number];
   readonly program_toJSON: (a: number) => any;
   readonly program_witnessTypes: (a: number) => [number, number, number];
-  readonly pset: (a: any) => [number, number, number];
-  readonly psetToTx: (a: any) => [number, number, number];
   readonly pst: (a: any) => [number, number, number];
   readonly pst_toPset: (a: number) => [number, number, number];
   readonly pst_toSignedHex: (a: number, b: number) => [number, number, number, number];
@@ -194,7 +176,6 @@ export interface InitOutput {
   readonly splitPsbtMulti: (a: any) => [number, number, number];
   readonly splitPsbtMultiSigned: (a: number, b: any) => [number, number, number, number];
   readonly splitPsbtSigned: (a: number, b: any) => [number, number, number, number];
-  readonly tx: (a: any) => [number, number, number];
   readonly witnessTypes: (a: any) => [number, number, number];
   readonly rust_0_6_malloc: (a: number) => number;
   readonly rust_0_6_free: (a: number) => void;
