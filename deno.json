@@ -1,4 +1,1 @@
-{
-  "imports": { "env": "./stub.ts" },
-  "lint": { "rules": { "exclude": [ "no-namespace" ] } }
-}
+{ "lint": { "rules": { "exclude": [ "no-namespace" ] } } }

@@ -1,7 +1,7 @@
-import type Bitcoin    from '../Bitcoin/Bitcoin.ts';
-import Fn              from '../../library/Fn.ts';
-import { Log }         from '../../library/Log.ts';
-import { Num, Base16 } from '../../library/Number.ts';
+import type Bitcoin    from '../../Bitcoin/Bitcoin.ts';
+import Fn              from '../../../library/Fn.ts';
+import { Log }         from '../../../library/Log.ts';
+import { Num, Base16 } from '../../../library/Number.ts';
 import process         from 'node:process';
 
 import type {
@@ -9,7 +9,7 @@ import type {
   Keypair  as WasmKeypair,
   Compiler as WasmCompiler,
   Program  as WasmProgram,
-} from './pkg/fadroma_simf.d.ts';
+} from '../pkg/fadroma_simf.d.ts';
 
 /** Instance of SimplicityHL WASM module. */
 export type Wasm = InitOutput;
@@ -52,13 +52,13 @@ export type Connect = (Log & Partial<Pick<Bitcoin, 'rpc'|'rest'>>) & {
 
 /** Load SimplicityHL WASM module. */
 export async function Wasm ({
-  wasm = process.env['FADROMA_SIMF_WASM'] || import.meta.resolve('./pkg/fadroma_simf_bg.wasm') as string|URL|object,
+  wasm = process.env['FADROMA_SIMF_WASM'] || import.meta.resolve('../pkg/fadroma_simf_bg.wasm') as string|URL|object,
   // You can replace this with w.g. `readFile` from `fs/promises`; or polyfill `globalThis.fetch`
   fetch = globalThis.fetch
 } = {}) {
   console.debug(`Loading Fadroma SimplicityHL WASM module from ${wasm}`);
   const conform = (x: string|URL) => new URL(x).toString();
-  const wrap = await import('./pkg/fadroma_simf.js');
+  const wrap = await import('../pkg/fadroma_simf.js');
   if ((typeof wasm === 'string')||(wasm instanceof URL)) wasm = await fetch(conform(wasm));
   await wrap.default(wasm);
   return wrap;

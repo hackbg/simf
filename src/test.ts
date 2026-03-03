@@ -1,18 +1,23 @@
 #!/usr/bin/env -S deno run --allow-read --allow-env --allow-run --allow-write=/tmp/fadroma --allow-import=cdn.skypack.dev:443,deno.land:443 --allow-net=127.0.0.1:8941,liquidtestnet.com:443,blockstream.info:443
-import { p2wpkh }   from 'npm:@scure/btc-signer';
-import { pubECDSA } from 'npm:@scure/btc-signer/utils.js';
-import * as SimplicityHL from './SimplicityHL.ts';
-import Bitcoin      from '../Bitcoin/Bitcoin.ts';
-import Test         from '../../library/Test.ts';
-import Fn           from '../../library/Fn.ts';
 import { deepStrictEqual as equal, rejects } from 'node:assert';
+import * as SimplicityHL from './sdk.ts';
+import { pubECDSA } from 'npm:@scure/btc-signer/utils.js';
+import { p2wpkh } from 'npm:@scure/btc-signer';
+import Bitcoin from '../../Bitcoin/Bitcoin.ts';
+import Test from '../../../library/Test.ts';
+import Fn from '../../../library/Fn.ts';
+
 const { is: Is, has: Has } = Test;
+
 /** Non-private key. */
 const SECRET = new Uint8Array(Array(32).fill(1));
+
 /** WASM-backed Secp256k1 keypair for Schnorr signing. */
 const KEYPAIR = await SimplicityHL.Keypair(SECRET);
+
 /** Public key for ECDSA (transactions). */
 const PUB_ECDSA = pubECDSA(SECRET);
+
 /** Test the SimplicityHL support in Fadroma. */
 export default Test(import.meta, 'SimplicityHL',
   // Check that the API entrypoints are present on the WASM module:
@@ -29,6 +34,7 @@ export default Test(import.meta, 'SimplicityHL',
   // TODO: Test SimplicityHL on remote testnet:
   // TestSimplicityHL('liquidtestnet',  Bitcoin.LiquidTestnet),
 )
+
 /** Test SimplicityHL programs. */
 function TestSimplicityHL (Chain: typeof Bitcoin.ElementsRegtest) {
   // Genesis hash is needed to redeem with witness
@@ -169,10 +175,12 @@ function TestSimplicityHL (Chain: typeof Bitcoin.ElementsRegtest) {
     }
   }
 }
+
 /** Define test case for expected wallet balance. */
 function testHasBalance <T> (balance: T) {
   return Fn.Name(`Balance is ${balance}`, (info: { balance: T }) => equal(info.balance, balance))
 }
+
 function testSplitTx (
   tx: { hex: unknown, vout: unknown[] }, p2tr: string, amount: number, cost: number, _remaining?: number
 ) {

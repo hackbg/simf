@@ -114,4 +114,4 @@ test-sh:
 # Run tests in container.
 test:
   @just test-img
-  ${RUN_TEST} "cd platform/SimplicityHL/ && ./SimplicityHL.test.ts"
+  ${RUN_TEST} "cd platform/SimplicityHL/ && ./src/test.ts"
