@@ -180,7 +180,7 @@ type Maybe<T> = Result<T, JsError>;
 #[wasm_bindgen(js_name = splitSigned)]
 pub fn split_psbt_signed (signer: &Keypair, options: &JsValue) -> Maybe<String> {
     let (mut psbt, utxo) = split_psbt_wrap(options, None, None)?;
-    psbt.inputs_mut()[0].witness_utxo = Some(utxo);
+    psbt.inputs_mut()[0].witness_utxo = Some(utxo[0].clone());
     Pst(psbt).to_signed_hex(signer)
 }
 
@@ -200,7 +200,7 @@ pub fn split_psbt (options: &JsValue) -> Maybe<JsValue> {
 
 fn split_psbt_wrap (
     options: &JsValue, sender: Option<Address>, recipient: Option<Address>,
-) -> Maybe<(PartiallySignedTransaction, TxOut)> {
+) -> Maybe<(PartiallySignedTransaction, Vec<TxOut>)> {
     split_psbt_impl(
         &get!(options, "previous",  arg_tx)?,
         &match sender {
@@ -216,7 +216,7 @@ fn split_psbt_wrap (
 
 fn split_psbt_impl (
     previous: &Transaction, sender: &Address, recipient: &Address, amount: u64, fee: u64
-) -> Maybe<(PartiallySignedTransaction, TxOut)> {
+) -> Maybe<(PartiallySignedTransaction, Vec<TxOut>)> {
     let (outpoint, utxo) = find_utxo(&previous, &sender)?;
     if let Some(value) = utxo.value.explicit() {
         let asset = utxo.asset.explicit().unwrap();
@@ -228,7 +228,7 @@ fn split_psbt_impl (
             outputs.push(tx_output(sender.script_pubkey(), asset, change));
         }
         outputs.push(elements::TxOut::new_fee(fee, asset));
-        Ok((PartiallySignedTransaction::from_tx(transaction(inputs, outputs)), utxo))
+        Ok((PartiallySignedTransaction::from_tx(transaction(inputs, outputs)), vec![utxo]))
     } else {
         err!("need explicit utxo")
     }
@@ -248,23 +248,17 @@ pub fn split_psbt_multi_inspect (options: &JsValue) -> Maybe<JsValue> {
 }
 
 fn split_psbt_multi_wrap (
-    options:   &JsValue,
-    sender:    Option<Address>,
-    recipient: Option<Address>,
+    options: &JsValue,
+    sender: Option<Address>,
+    receiv: Option<Address>,
 ) -> Maybe<(PartiallySignedTransaction, Vec<TxOut>)> {
     let asset  = get!(options, "asset", arg_asset_id)?;
     let utxos  = get!(options, "utxos", arg_utxos)?;
     let amount = get!(options, "amount", arg_sats)?;
     let fee    = get!(options, "fee", arg_sats)?;
-    let sender = match sender {
-        Some(sender) => sender,
-        None => get!(options, "sender",    arg_address)?
-    };
-    let recipient = match recipient {
-        Some(recipient) => recipient,
-        None => get!(options, "recipient", arg_address)?
-    };
-    split_psbt_multi_impl(asset, &utxos, &sender, &recipient, amount, fee)
+    let sender = match sender { Some(s) => s, None => get!(options, "sender",    arg_address)? };
+    let receiv = match receiv { Some(r) => r, None => get!(options, "recipient", arg_address)? };
+    split_psbt_multi_impl(asset, &utxos, &sender, &receiv, amount, fee)
 }
 
 fn split_psbt_multi_impl (
@@ -500,8 +494,8 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
         }
     }
 
-    fn redeem_psbt_utxo (&self, options: &JsValue) -> Maybe<(PartiallySignedTransaction, TxOut)> {
-        split_psbt_wrap(options, Some(self.p2tr()?), None)
+    fn redeem_psbt_utxo (&self, opts: &JsValue) -> Maybe<(PartiallySignedTransaction, Vec<TxOut>)> {
+        split_psbt_wrap(opts, Some(self.p2tr()?), None)
     }
 
     /// Partially-signed redeem transaction without witnesses.
@@ -519,8 +513,8 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
     /// Sign this to provide witness data.
     #[wasm_bindgen(js_name = redeemSighash)]
     pub fn redeem_sighash (&self, options: JsValue) -> Maybe<Uint8Array> {
-        let (psbt, utxo) = self.redeem_psbt_utxo(&options)?;
-        let env = self.env(&psbt, vec![ElementsUtxo::from(utxo)])?;
+        let (psbt, utxos) = self.redeem_psbt_utxo(&options)?;
+        let env = self.env(&psbt, utxos.into_iter().map(ElementsUtxo::from).collect())?;
         let all = env.c_tx_env().sighash_all().to_byte_array();
         let u8a = Uint8Array::new_with_length(all.len() as u32);
         u8a.copy_from(&all);
@@ -532,8 +526,8 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
     #[wasm_bindgen(js_name = redeemTx)]
     pub fn redeem_tx (&self, options: JsValue) -> Maybe<Object> {
         let wit = get!(options, "witness", arg_witness)?;
-        let (mut psbt, utxo) = self.redeem_psbt_utxo(&options)?;
-        let env = self.env(&psbt, vec![ElementsUtxo::from(utxo)])?;
+        let (mut psbt, utxos) = self.redeem_psbt_utxo(&options)?;
+        let env = self.env(&psbt, utxos.into_iter().map(ElementsUtxo::from).collect())?;
         let sat = try_!("satisfy": self.compiled.satisfy_with_env(wit, Some(&env)))?;
         let (program_bytes, witness_bytes) = sat.redeem().encode_to_vec();
         psbt.inputs_mut()[0].final_script_witness = Some(vec![
