@@ -449,51 +449,6 @@ export class Program {
         return takeFromExternrefTable0(ret[0]);
     }
     /**
-     * Signed redeem transaction.
-     * Broadcast it to redeem funds.
-     * @param {any} options
-     * @returns {object}
-     */
-    redeemTxMulti(options) {
-        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
-        _assertNum(this.__wbg_ptr);
-        const ret = wasm.program_redeemTxMulti(this.__wbg_ptr, options);
-        if (ret[2]) {
-            throw takeFromExternrefTable0(ret[1]);
-        }
-        return takeFromExternrefTable0(ret[0]);
-    }
-    /**
-     * Partially-signed redeem transaction without witnesses.
-     * For manual signing.
-     * @param {any} options
-     * @returns {any}
-     */
-    redeemPsbtMulti(options) {
-        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
-        _assertNum(this.__wbg_ptr);
-        const ret = wasm.program_redeemPsbtMulti(this.__wbg_ptr, options);
-        if (ret[2]) {
-            throw takeFromExternrefTable0(ret[1]);
-        }
-        return takeFromExternrefTable0(ret[0]);
-    }
-    /**
-     * SIGHASH_ALL of redeem transaction.
-     * Sign this to provide witness data.
-     * @param {any} options
-     * @returns {Uint8Array}
-     */
-    redeemSighashMulti(options) {
-        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
-        _assertNum(this.__wbg_ptr);
-        const ret = wasm.program_redeemSighashMulti(this.__wbg_ptr, options);
-        if (ret[2]) {
-            throw takeFromExternrefTable0(ret[1]);
-        }
-        return takeFromExternrefTable0(ret[0]);
-    }
-    /**
      * Produce JSON description of program object.
      * @returns {object}
      */
@@ -655,52 +610,12 @@ export function pst(arg) {
  * @param {any} options
  * @returns {any}
  */
-export function split(options) {
-    const ret = wasm.split(options);
+export function splitInspect(options) {
+    const ret = wasm.splitInspect(options);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
     return takeFromExternrefTable0(ret[0]);
-}
-
-/**
- * @param {any} options
- * @returns {any}
- */
-export function splitMulti(options) {
-    const ret = wasm.splitMulti(options);
-    if (ret[2]) {
-        throw takeFromExternrefTable0(ret[1]);
-    }
-    return takeFromExternrefTable0(ret[0]);
-}
-
-/**
- * @param {Keypair} signer
- * @param {any} options
- * @returns {string}
- */
-export function splitMultiSigned(signer, options) {
-    let deferred2_0;
-    let deferred2_1;
-    try {
-        _assertClass(signer, Keypair);
-        if (signer.__wbg_ptr === 0) {
-            throw new Error('Attempt to use a moved value');
-        }
-        const ret = wasm.splitMultiSigned(signer.__wbg_ptr, options);
-        var ptr1 = ret[0];
-        var len1 = ret[1];
-        if (ret[3]) {
-            ptr1 = 0; len1 = 0;
-            throw takeFromExternrefTable0(ret[2]);
-        }
-        deferred2_0 = ptr1;
-        deferred2_1 = len1;
-        return getStringFromWasm0(ptr1, len1);
-    } finally {
-        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
-    }
 }
 
 /**

@@ -69,21 +69,6 @@ export class Program {
    */
   redeemSighash(options: any): Uint8Array;
   /**
-   * Signed redeem transaction.
-   * Broadcast it to redeem funds.
-   */
-  redeemTxMulti(options: any): object;
-  /**
-   * Partially-signed redeem transaction without witnesses.
-   * For manual signing.
-   */
-  redeemPsbtMulti(options: any): any;
-  /**
-   * SIGHASH_ALL of redeem transaction.
-   * Sign this to provide witness data.
-   */
-  redeemSighashMulti(options: any): Uint8Array;
-  /**
    * Produce JSON description of program object.
    */
   toJSON(): object;
@@ -129,11 +114,7 @@ export function paramTypes(source: string): object;
 
 export function pst(arg: object): Pst;
 
-export function split(options: any): any;
-
-export function splitMulti(options: any): any;
-
-export function splitMultiSigned(signer: Keypair, options: any): string;
+export function splitInspect(options: any): any;
 
 export function splitSigned(signer: Keypair, options: any): string;
 
@@ -161,20 +142,15 @@ export interface InitOutput {
   readonly program_commitPsbt: (a: number, b: any) => [number, number, number];
   readonly program_paramTypes: (a: number) => [number, number, number];
   readonly program_redeemPsbt: (a: number, b: any) => [number, number, number];
-  readonly program_redeemPsbtMulti: (a: number, b: any) => [number, number, number];
   readonly program_redeemSighash: (a: number, b: any) => [number, number, number];
-  readonly program_redeemSighashMulti: (a: number, b: any) => [number, number, number];
   readonly program_redeemTx: (a: number, b: any) => [number, number, number];
-  readonly program_redeemTxMulti: (a: number, b: any) => [number, number, number];
   readonly program_toJSON: (a: number) => any;
   readonly program_witnessTypes: (a: number) => [number, number, number];
   readonly pst: (a: any) => [number, number, number];
   readonly pst_toPset: (a: number) => [number, number, number];
   readonly pst_toSignedHex: (a: number, b: number) => [number, number, number, number];
   readonly pst_toTx: (a: number) => [number, number, number];
-  readonly split: (a: any) => [number, number, number];
-  readonly splitMulti: (a: any) => [number, number, number];
-  readonly splitMultiSigned: (a: number, b: any) => [number, number, number, number];
+  readonly splitInspect: (a: any) => [number, number, number];
   readonly splitSigned: (a: number, b: any) => [number, number, number, number];
   readonly witnessTypes: (a: any) => [number, number, number];
   readonly rust_0_6_malloc: (a: number) => number;

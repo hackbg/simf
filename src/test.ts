@@ -1,5 +1,5 @@
 #!/usr/bin/env -S deno run --allow-read --allow-env --allow-run --allow-write=/tmp/fadroma --allow-import=cdn.skypack.dev:443,deno.land:443 --allow-net=127.0.0.1:8941,liquidtestnet.com:443,blockstream.info:443
-import { deepStrictEqual as equal, rejects, throws } from 'node:assert';
+import { deepStrictEqual as equal, rejects, throws, ok } from 'node:assert';
 import * as SimplicityHL from './sdk.ts';
 import { pubECDSA } from 'npm:@scure/btc-signer/utils.js';
 import { p2wpkh } from 'npm:@scure/btc-signer';
@@ -35,10 +35,9 @@ export default Test(import.meta, 'SimplicityHL',
     Has('compiler',         Is('function')),
     Has('keypair',          Is('function')),
     Has('pst',              Is('function')),
-    Has('split',            Is('function')),
-    Has('splitSigned',      Is('function'), TestSplitSigned()),
-    Has('splitMulti',       Is('function')),
-    Has('splitMultiSigned', Is('function'))),
+    Has('splitSigned',      Is('function')),
+    Has('splitInspect',     Is('function')),
+    TestSplitSigned())
 
 )
 
@@ -56,7 +55,7 @@ function TestSplitSigned ({
   throws(()=>splitSigned({}));
   throws(()=>splitSigned(KEYPAIR));
   throws(()=>splitSigned(KEYPAIR, {}));
-  return Fn.Name('Test splitSigned', async (splitSigned: Fn) => {
+  return Fn.Name('Test splitSigned', async ({ splitSigned, splitInspect }) => {
     let btc;
     try {
       btc = await Bitcoin.ElementsRegtest()
@@ -80,7 +79,6 @@ function TestSplitSigned ({
       btc.kill();
     }
   })
-  process.exit(123);
 }
 
 /** Test SimplicityHL programs. */
@@ -210,20 +208,18 @@ function TestSimplicityHL (Chain: typeof Bitcoin.ElementsRegtest) {
       const fee         = 1e-4;
       const amount      = 1. - fee;
 
-      // Try the new code path:
+      // Generate sighash by new code path:
       const asset = Bitcoin.ElementsRegtest.BITCOIN;
       const txid  = previous.txid;
       const vout  = previous.vout.filter(x=>x.scriptPubKey.address === p2tr)[0];
       if (!vout) throw new Error('no corresponding vout found');
-      const utxos = [{ txid, vout: vout.n, recipient: vout.scriptPubKey.address, asset, value: vout.value }];
-      const sighashMultiOpts = { asset, utxos, recipient, amount, fee };
-      const sighashMulti = Base16.encode(prog.redeemSighashMulti(sighashMultiOpts));
+      const utxos = [{ txid, asset, vout: vout.n, recipient: vout.scriptPubKey.address, value: vout.value }];
+      const sighashOpts = { asset, utxos, recipient, amount, fee };
+      const sighash = prog.redeemSighash(sighashOpts);
+      ok(sighash instanceof Uint8Array, 'sighash expected to be returned from WASM as Uint8Array')
+      ok(Base16.encode(sighash), 'sighash expected to be base16-encodable');
 
       // Try spending from program:
-      const sighashOpts = { previous: previous.hex, amount, fee, recipient };
-      const sighash     = prog.redeemSighash(sighashOpts);
-      equal(Base16.encode(sighash), sighashMulti, 'discrepancy in sighash code paths');
-
       const witness     = provideWitness ? await provideWitness(sighash) : {};
       const redeemArgs  = { rpc, rest, ...sighashOpts, witness };
 
