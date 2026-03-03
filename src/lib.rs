@@ -258,19 +258,6 @@ fn split_psbt_impl (
     Ok((pset, utxos))
 }
 
-fn find_utxo (tx: &Transaction, address: &Address) -> Maybe<(OutPoint, TxOut)> {
-    let mut outpoint: Option<OutPoint> = Default::default();
-    let mut tx_out:   Option<TxOut>    = Default::default();
-    for (index, output) in tx.output.iter().enumerate() {
-        if output.script_pubkey == address.script_pubkey() {
-            outpoint = Some(OutPoint::new(tx.txid(), index as u32));
-            tx_out   = Some(output.clone());
-            break;
-        }
-    }
-    Ok((required!(outpoint)?, required!(tx_out)?))
-}
-
 #[wasm_bindgen(js_name = pst)]
 pub fn pst (arg: Object) -> Maybe<Pst> {
     let mut pset = PartiallySignedTransaction::new_v2();
@@ -331,7 +318,7 @@ fn extract_tx (pset: &PartiallySignedTransaction) -> Maybe<Transaction> {
 }
 
 fn pset_to_hex (pset: &PartiallySignedTransaction) -> Maybe<String> {
-  Ok(hex::encode(&extract_tx(&pset)?.serialize()))
+    Ok(hex::encode(&extract_tx(&pset)?.serialize()))
 }
 
 /// Create compiler, providing chain constants.
