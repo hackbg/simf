@@ -58,18 +58,27 @@ function TestSplitSigned ({
   return Fn.Name('Test splitSigned', async ({ splitSigned, splitInspect }) => {
     let btc;
     try {
+      // Init localnet
       btc = await Bitcoin.ElementsRegtest()
       const { rpc, rest } = btc;
       await rpc.createwallet(name);
       await rpc.rescanblockchain();
-      // Fund sender from node's wallet
+
+      // Fund sender from inital balance wallet
       const id = await rpc.sendtoaddress(sender, String(100000));
       await rpc.importaddress(sender);
       await rpc.rescanblockchain();
-      // Fund recipient directly from sender.
+
+      const previous = await rest.tx(id);
+      const asset = Bitcoin.ElementsRegtest.BITCOIN;
+      const txid  = previous.txid;
+      const vout  = previous.vout.filter(x=>x.scriptPubKey.address === sender)[0];
+      if (!vout) throw new Error('no corresponding vout found');
+      const utxos = [{ txid, asset, vout: vout.n, recipient: vout.scriptPubKey.address, value: vout.value }];
+
+      // Fund recipient from sender.
       const tx = await rest.tx(id);
-      const previous = tx.hex;
-      const options = { previous, sender, recipient, amount: '10000', fee: '5760' };
+      const options = { asset, utxos, sender, recipient, amount: '10000', fee: '5760' };
       const signer = await SimplicityHL.Keypair(secret1);
       const hex = splitSigned(signer, options);
       const id2 = await rpc.sendrawtransaction(hex);
