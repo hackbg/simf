@@ -1,4 +1,5 @@
 extern crate console_error_panic_hook;
+
 use std::{str::FromStr, sync::Arc};
 use wasm_bindgen::prelude::*;
 #[allow(unused)] use js_sys::*;
@@ -178,26 +179,14 @@ type Maybe<T> = Result<T, JsError>;
 
 #[wasm_bindgen(js_name = splitPsbtSigned)]
 pub fn split_psbt_signed (signer: &Keypair, options: &JsValue) -> Maybe<String> {
-    let (mut psbt, utxo) = split_psbt_impl(
-        &get!(options, "previous",  arg_tx)?,
-        &get!(options, "sender",    arg_address)?,
-        &get!(options, "recipient", arg_address)?,
-        get!(options, "amount",     arg_sats)?,
-        get!(options, "fee",        arg_sats)?
-    )?;
+    let (mut psbt, utxo) = split_psbt_impl_wrap(options)?;
     psbt.inputs_mut()[0].witness_utxo = Some(utxo);
     Pst(psbt).to_signed_hex(signer)
 }
 
 #[wasm_bindgen(js_name = splitPsbt)]
 pub fn split_psbt (options: &JsValue) -> Maybe<JsValue> {
-    let (psbt, _) = split_psbt_impl(
-        &get!(options, "previous",  arg_tx)?,
-        &get!(options, "sender",    arg_address)?,
-        &get!(options, "recipient", arg_address)?,
-        get!(options, "amount",     arg_sats)?,
-        get!(options, "fee",        arg_sats)?
-    )?;
+    let (psbt, _) = split_psbt_impl_wrap(options)?;
     let bytes = try_!("extract final tx:": psbt.extract_tx())?.serialize();
     match JSON::parse(serde_json::to_string(&psbt)?.as_str()) {
         Err(_) => err!("failed to deserialize interim redeem psbt"),
@@ -209,11 +198,20 @@ pub fn split_psbt (options: &JsValue) -> Maybe<JsValue> {
     }
 }
 
+fn split_psbt_impl_wrap (options: &JsValue) -> Maybe<(PartiallySignedTransaction, TxOut)> {
+    split_psbt_impl(
+        &get!(options, "previous",  arg_tx)?,
+        &get!(options, "sender",    arg_address)?,
+        &get!(options, "recipient", arg_address)?,
+        get!(options, "amount",     arg_sats)?,
+        get!(options, "fee",        arg_sats)?
+    )
+}
+
 fn split_psbt_impl (
     previous: &Transaction, sender: &Address, recipient: &Address, amount: u64, fee: u64
 ) -> Maybe<(PartiallySignedTransaction, TxOut)> {
     let (outpoint, utxo) = find_utxo(&previous, &sender)?;
-    //debug!("find_utxo: {outpoint:?} + {utxo:?}");
     if let Some(value) = utxo.value.explicit() {
         let asset = utxo.asset.explicit().unwrap();
         let inputs = vec![tx_input(outpoint)];
@@ -232,40 +230,28 @@ fn split_psbt_impl (
 
 #[wasm_bindgen(js_name = splitPsbtMultiSigned)]
 pub fn split_psbt_multi_signed (signer: &Keypair, options: &JsValue) -> Maybe<String> {
-    let (mut psbt, utxos) = split_psbt_multi_impl(
-        get!(options,  "asset",     arg_asset_id)?,
-        &get!(options, "utxos",     arg_utxos)?,
-        &get!(options, "sender",    arg_address)?,
-        &get!(options, "recipient", arg_address)?,
-        get!(options,  "amount",    arg_sats)?,
-        get!(options,  "fee",       arg_sats)?
-    )?;
-    for (index, utxo) in utxos.into_iter().enumerate() {
-        debug!("{index}: {:?} <=> {:?}", psbt.inputs().get(index), &utxo);
-        psbt.inputs_mut()[index].witness_utxo = Some(utxo);
-    }
-    Pst(psbt).to_signed_hex(signer)
+    let (mut psbt, utxos) = split_psbt_multi_impl_wrap(options)?;
+    Pst(psbt).add_signatures(&utxos).to_signed_hex(signer)
 }
 
 #[wasm_bindgen(js_name = splitPsbtMulti)]
-pub fn split_psbt_multi (options: &JsValue) -> Maybe<JsValue> {
-    let (psbt, _) = split_psbt_multi_impl(
+pub fn split_psbt_multi_inspect (options: &JsValue) -> Maybe<JsValue> {
+    let (mut psbt, utxos) = split_psbt_multi_impl_wrap(options)?;
+    let psbt = Pst(psbt).add_signatures(&utxos).0;
+    try_!("interim ser/de failed": JSON::parse(serde_json::to_string(&psbt)?.as_str()))
+}
+
+fn split_psbt_multi_impl_wrap (options: &JsValue)
+    -> Maybe<(PartiallySignedTransaction, Vec<TxOut>)>
+{
+    split_psbt_multi_impl(
         get!(options,  "asset",     arg_asset_id)?,
         &get!(options, "utxos",     arg_utxos)?,
         &get!(options, "sender",    arg_address)?,
         &get!(options, "recipient", arg_address)?,
         get!(options,  "amount",    arg_sats)?,
         get!(options,  "fee",       arg_sats)?
-    )?;
-    let bytes = try_!("extract final tx:": psbt.extract_tx())?.serialize();
-    match JSON::parse(serde_json::to_string(&psbt)?.as_str()) {
-        Err(_) => err!("failed to deserialize interim redeem psbt"),
-        Ok(psbt) => {
-            set!(psbt, "bytes", ret_u8a(&bytes));
-            set!(psbt, "hex",   hex::encode(&bytes));
-            Ok(psbt)
-        }
-    }
+    )
 }
 
 fn split_psbt_multi_impl (
@@ -276,15 +262,24 @@ fn split_psbt_multi_impl (
     amount:    u64,
     fee:       u64
 ) -> Maybe<(PartiallySignedTransaction, Vec<TxOut>)> {
-    debug!("{utxos_in:#?}");
     let mut total = 0;
     let mut inputs = vec![];
     let mut utxos  = vec![];
-    for (outpoint, utxo) in utxos_in.iter() {
-        inputs.push(outpoint);
-        total += utxo.value.explicit().expect("only explicit values are supported");
-        if utxo.asset.explicit().expect("only explicit assets are supported") != asset_id {
-            return err!("unexpected asset in utxo")
+    for (index, (outpoint, utxo)) in utxos_in.iter().enumerate() {
+        if let Some(explicit_asset) = utxo.asset.explicit() {
+            if explicit_asset == asset_id {
+                if let Some(explicit_value) = utxo.value.explicit() {
+                    total += explicit_value;
+                    inputs.push(outpoint);
+                    utxos.push(utxo.clone());
+                } else {
+                    return err!("non-explicit value in utxo #{index}")
+                }
+            } else {
+                return err!("unexpected explicit asset in utxo #{index}: {explicit_asset:?}")
+            }
+        } else {
+            return err!("non-explicit asset in utxo #{index}")
         }
     }
     let inputs = inputs.into_iter().map(|o|tx_input(*o)).collect::<Vec<_>>();
@@ -305,10 +300,7 @@ fn find_utxo (tx: &Transaction, address: &Address) -> Maybe<(OutPoint, TxOut)> {
     let mut outpoint: Option<OutPoint> = Default::default();
     let mut tx_out:   Option<TxOut>    = Default::default();
     for (index, output) in tx.output.iter().enumerate() {
-        //debug!("\nindex={index}\n  output={output:?}\n  value={:?}", &output.value);
-        //debug!("  {address:?} {:?} {:?}", &output.script_pubkey, &address.script_pubkey());
         if output.script_pubkey == address.script_pubkey() {
-            //debug!("  using tx_out #{index}");
             outpoint = Some(OutPoint::new(tx.txid(), index as u32));
             tx_out   = Some(output.clone());
             break;
@@ -371,9 +363,8 @@ pub fn pst (arg: Object) -> Maybe<Pst> {
       let mut pset = self.0.clone();
       let tx = extract_tx(&pset)?;
       let mut sighash_cache = SighashCache::new(&tx);
-      let public_key = keypair.public_key();
       let genesis_hash = BlockHash::all_zeros(); // not used at all for sighash calculation (?)
-      let msgs = pset.inputs().iter().enumerate().map(|(index, input)|Ok(
+      let msgs = pset.inputs().iter().enumerate().map(|(index, _input)|Ok(
           pset.sighash_msg(index, &mut sighash_cache, None, genesis_hash)?.to_secp_msg()
       )).collect::<Maybe<Vec<_>>>()?;
       for (i, input) in pset.inputs_mut().iter_mut().enumerate() {
@@ -387,6 +378,12 @@ pub fn pst (arg: Object) -> Maybe<Pst> {
     }
     fn tx (&self) -> Maybe<Transaction> {
         extract_tx(&self.0)
+    }
+    fn add_signatures (mut self, utxos: &[TxOut]) -> Self {
+        for (index, utxo) in utxos.into_iter().enumerate() {
+            self.0.inputs_mut()[index].witness_utxo = Some(utxo.clone());
+        }
+        self
     }
 }
 
@@ -739,7 +736,6 @@ fn arg_tx_ins (array: JsValue) -> Maybe<Vec<TxIn>> {
     let mut inputs = vec![];
     for input in Array::from(&array).iter() {
         let input = try_!("input: couldn't serialize": JSON::stringify(&input))?;
-        //debug!("input: {input}");
         let input = try_!("input: couldn't deserialize":
             serde_json::from_str(&input.as_string().unwrap_or_default()))?;
         inputs.push(input);
@@ -751,7 +747,6 @@ fn arg_tx_outs (array: JsValue) -> Maybe<Vec<TxOut>> {
     let mut outputs = vec![];
     for output in Array::from(&array).iter() {
         let output = try_!("output: couldn't serialize": JSON::stringify(&output))?;
-        //debug!("output: {output}");
         let output = try_display!("output: couldn't deserialize":
             serde_json::from_str(&output.as_string().unwrap_or_default()))?;
         outputs.push(output);
@@ -763,7 +758,6 @@ fn arg_pset_ins (array: JsValue) -> Maybe<Vec<Input>> {
     let mut inputs = vec![];
     for input in Array::from(&array).iter() {
         let input = try_!("input: couldn't serialize": JSON::stringify(&input))?;
-        //debug!("pset input: {input}");
         let input = try_!("input: couldn't deserialize":
             serde_json::from_str(&input.as_string().unwrap_or_default()))?;
         inputs.push(input);
@@ -775,7 +769,6 @@ fn arg_pset_outs (array: JsValue) -> Maybe<Vec<Output>> {
     let mut outputs = vec![];
     for output in Array::from(&array).iter() {
         let output = try_!("output: couldn't serialize": JSON::stringify(&output))?;
-        //debug!("pset output: {output}");
         let output = try_display!("output: couldn't deserialize":
             serde_json::from_str(&output.as_string().unwrap_or_default()))?;
         outputs.push(output);
@@ -803,13 +796,12 @@ fn arg_utxos (options: JsValue) -> Maybe<Vec<(OutPoint, TxOut)>> {
     for utxo in Array::from(&options).iter() {
         utxos.push(arg_utxo(utxo)?);
     }
-    debug!("utxos={utxos:#?}");
     Ok(utxos)
 }
 
 fn arg_utxo (options: JsValue) -> Maybe<(OutPoint, TxOut)> {
     let txid  = get!(options, "txid",      arg_txid)?;
-    let vout  = get!(options, "vout",      arg_u32)?;
+    let vout  = get!(options, "vout",      arg_vout)?;
     let recip = get!(options, "recipient", arg_address)?;
     let asset = get!(options, "asset",     arg_asset_id)?;
     let value = get!(options, "value",     arg_sats)?;
@@ -821,32 +813,29 @@ fn arg_utxo (options: JsValue) -> Maybe<(OutPoint, TxOut)> {
     }))
 }
 
-fn arg_u32 (input: JsValue) -> Maybe<u32> {
-    if BigInt::is_type_of(&input) {
-        warn!("BigInt -> u64 -> u32; check for loss of precision");
-        Ok(try_!("BigInt -> u32": u64::try_from(input))? as u32)
+fn arg_vout (input: JsValue) -> Maybe<u32> {
+    Ok(if BigInt::is_type_of(&input) {
+        try_!("BigInt -> vout (u32)": u64::try_from(input))? as u32
     } else if Number::is_type_of(&input) {
-        warn!("Number -> u64 -> u32; * 10^8; check for loss of precision");
-        try_!("Number -> u32": f64::try_from(input).map(|x|(x * 100000000.0) as u32))
+        try_!("Number -> vout (u32)": f64::try_from(input))? as u32
     } else if JsString::is_type_of(&input) {
-        warn!("String -> u64 -> u32: use BigInt to avoid typing issues");
-        Ok(try_!("String -> u32": u64::try_from(input))? as u32)
+        try_!("String -> vout (u32)": u64::try_from(input))? as u32
     } else {
-        return err!("received {:?}: need integer", input.js_typeof())
-    }
+        return err!("vout: received {:?}: need integer", input.js_typeof())
+    })
 }
 
 fn arg_sats (input: JsValue) -> Maybe<u64> {
     if BigInt::is_type_of(&input) {
-        try_!("BigInt -> u64": u64::try_from(input))
+        try_!("BigInt -> sats (u64)": u64::try_from(input))
     } else if Number::is_type_of(&input) {
-        warn!("Number -> u64: * 10^8; use BigInt to avoid precision issues");
-        try_!("Number -> u64": f64::try_from(input).map(|x|(x * 100000000.0) as u64))
+        warn!("Number -> sats (u64): * 10^8; use BigInt to avoid precision issues");
+        try_!("Number -> sats (u64)": f64::try_from(input).map(|x|(x * 100000000.0) as u64))
     } else if JsString::is_type_of(&input) {
-        warn!("String -> u64: use BigInt to avoid typing issues");
-        try_!("String -> u64": u64::try_from(input))
+        warn!("String -> sats (u64): use BigInt to avoid typing issues");
+        try_!("String -> sats (u64)": u64::try_from(input))
     } else {
-        return err!("received {:?}: need integer", input.js_typeof())
+        return err!("sats: received {:?}: need integer", input.js_typeof())
     }
 }
 
