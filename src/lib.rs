@@ -181,15 +181,15 @@ type Maybe<T> = Result<T, JsError>;
 }
 
 #[wasm_bindgen(js_name = splitSigned)]
-pub fn split_psbt_signed (signer: Keypair, options: JsValue) -> Maybe<String> {
-    let (mut psbt, _) = split_psbt_wrap(&options, None, None)?;
-    Pst(psbt).to_signed_hex(&signer)
+pub fn split_psbt_signed (signer: &Keypair, options: &JsValue) -> Maybe<String> {
+    let (mut psbt, _) = split_psbt_wrap(options, None, None)?;
+    Pst(psbt).to_signed_hex(signer)
 }
 
 #[wasm_bindgen(js_name = splitInspect)]
-pub fn split_psbt_inspect (signer: Option<Keypair>, options: JsValue) -> Maybe<JsValue> {
-    let mut pst = Pst(split_psbt_wrap(&options, None, None)?.0);
-    if let Some(signer) = signer { pst = Pst(pst.to_signed_impl(&signer)?) }
+pub fn split_psbt_unsigned (options: &JsValue) -> Maybe<JsValue> {
+    let mut pst = Pst(split_psbt_wrap(options, None, None)?.0);
+    //if let Some(signer) = signer { pst = Pst(pst.to_signed_impl(&signer)?) }
     ret_psbt(&pst.0)
 }
 

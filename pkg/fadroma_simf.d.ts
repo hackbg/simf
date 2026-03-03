@@ -118,7 +118,7 @@ export function paramTypes(source: string): object;
 
 export function pst(arg: object): Pst;
 
-export function splitInspect(signer: Keypair | null | undefined, options: any): any;
+export function splitInspect(options: any): any;
 
 export function splitSigned(signer: Keypair, options: any): string;
 
@@ -155,7 +155,7 @@ export interface InitOutput {
   readonly pst_toSigned: (a: number, b: number) => [number, number, number];
   readonly pst_toSignedHex: (a: number, b: number) => [number, number, number, number];
   readonly pst_toTx: (a: number) => [number, number, number];
-  readonly splitInspect: (a: number, b: any) => [number, number, number];
+  readonly splitInspect: (a: any) => [number, number, number];
   readonly splitSigned: (a: number, b: any) => [number, number, number, number];
   readonly witnessTypes: (a: any) => [number, number, number];
   readonly rust_0_6_malloc: (a: number) => number;
