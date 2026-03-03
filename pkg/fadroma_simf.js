@@ -498,7 +498,7 @@ export class Pst {
         wasm.__wbg_pst_free(ptr, 0);
     }
     /**
-     * Simplified sign procedure.
+     * Simplest sign procedure. returning the TX bytes directly.
      * @param {Keypair} keypair
      * @returns {string}
      */
@@ -547,6 +547,24 @@ export class Pst {
         if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
         _assertNum(this.__wbg_ptr);
         const ret = wasm.pst_toPset(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * Simplified sign procedure.
+     * @param {Keypair} keypair
+     * @returns {any}
+     */
+    toSigned(keypair) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        _assertClass(keypair, Keypair);
+        if (keypair.__wbg_ptr === 0) {
+            throw new Error('Attempt to use a moved value');
+        }
+        const ret = wasm.pst_toSigned(this.__wbg_ptr, keypair.__wbg_ptr);
         if (ret[2]) {
             throw takeFromExternrefTable0(ret[1]);
         }
@@ -607,11 +625,20 @@ export function pst(arg) {
 }
 
 /**
+ * @param {Keypair | null | undefined} signer
  * @param {any} options
  * @returns {any}
  */
-export function splitInspect(options) {
-    const ret = wasm.splitInspect(options);
+export function splitInspect(signer, options) {
+    let ptr0 = 0;
+    if (!isLikeNone(signer)) {
+        _assertClass(signer, Keypair);
+        if (signer.__wbg_ptr === 0) {
+            throw new Error('Attempt to use a moved value');
+        }
+        ptr0 = signer.__destroy_into_raw();
+    }
+    const ret = wasm.splitInspect(ptr0, options);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -624,25 +651,26 @@ export function splitInspect(options) {
  * @returns {string}
  */
 export function splitSigned(signer, options) {
-    let deferred2_0;
-    let deferred2_1;
+    let deferred3_0;
+    let deferred3_1;
     try {
         _assertClass(signer, Keypair);
         if (signer.__wbg_ptr === 0) {
             throw new Error('Attempt to use a moved value');
         }
-        const ret = wasm.splitSigned(signer.__wbg_ptr, options);
-        var ptr1 = ret[0];
-        var len1 = ret[1];
+        var ptr0 = signer.__destroy_into_raw();
+        const ret = wasm.splitSigned(ptr0, options);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
         if (ret[3]) {
-            ptr1 = 0; len1 = 0;
+            ptr2 = 0; len2 = 0;
             throw takeFromExternrefTable0(ret[2]);
         }
-        deferred2_0 = ptr1;
-        deferred2_1 = len1;
-        return getStringFromWasm0(ptr1, len1);
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
     } finally {
-        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
     }
 }
 

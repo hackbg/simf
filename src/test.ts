@@ -69,20 +69,23 @@ function TestSplitSigned ({
       await rpc.importaddress(sender);
       await rpc.rescanblockchain();
 
+      // Find unspend transaction output
       const previous = await rest.tx(id);
-      const asset = Bitcoin.ElementsRegtest.BITCOIN;
-      const txid  = previous.txid;
-      const vout  = previous.vout.filter(x=>x.scriptPubKey.address === sender)[0];
+      const asset = () => `${Bitcoin.ElementsRegtest.BITCOIN}`;
+      const txid = previous.txid;
+      const vout = previous.vout.filter(x=>x.scriptPubKey.address === sender)[0];
       if (!vout) throw new Error('no corresponding vout found');
-      const utxos = [{ txid, asset, vout: vout.n, recipient: vout.scriptPubKey.address, value: vout.value }];
 
       // Fund recipient from sender.
-      const tx = await rest.tx(id);
-      const options = { asset, utxos, sender, recipient, amount: '10000', fee: '5760' };
-      const signer = await SimplicityHL.Keypair(secret1);
-      const hex = splitSigned(signer, options);
-      const id2 = await rpc.sendrawtransaction(hex);
-      const tx2 = await rest.tx(id2);
+      const tx    = await rest.tx(id);
+      const utxos = () => [{ txid, asset: asset(), vout: vout.n, recipient: vout.scriptPubKey.address, value: vout.value }]
+      const opts  = () => ({ sender, recipient, asset: asset(), amount, fee, utxos: utxos(), })
+      console.log(opts());
+      const key   = await SimplicityHL.Keypair(secret1);
+      const hex   = splitSigned(key, opts());
+      //console.log({inspect: splitInspect(key, opts())});
+      const id2   = await rpc.sendrawtransaction(hex);
+      const tx2   = await rest.tx(id2);
       await rpc.rescanblockchain();
     } finally {
       btc.kill();

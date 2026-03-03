@@ -117,7 +117,7 @@ macro_rules! obj(($($id:literal = $val:expr),+ $(,)?) => {{
 // Okay, with that out of the way:
 
 /// Concrete type of [ElementsEnv] used.
-pub type Env = simplicityhl::simplicity::jet::elements::ElementsEnv<Arc<Transaction>>;
+pub type Env = ElementsEnv<Arc<Transaction>>;
 
 /// PSET/PSBT (partially-signed transaction = PST), paired with corresponding prevouts.
 pub type Signable = (PartiallySignedTransaction, Vec<TxOut>);
@@ -174,26 +174,26 @@ type Maybe<T> = Result<T, JsError>;
         let message = secp256k1::Message::from_digest(bytes);
         let result = Uint8Array::new_with_length(64);
         result.copy_from(
-            &secp256k1::SECP256K1.sign_ecdsa(&message, &self.0.secret_key()).serialize_der()
+            &SECP256K1.sign_ecdsa(&message, &self.0.secret_key()).serialize_der()
         );
         result
     }
 }
 
 #[wasm_bindgen(js_name = splitSigned)]
-pub fn split_psbt_multi_signed (signer: &Keypair, options: &JsValue) -> Maybe<String> {
-    let (mut psbt, utxos) = split_psbt_multi_wrap(options, None, None)?;
-    Pst(psbt).add_signatures(&utxos).to_signed_hex(signer)
+pub fn split_psbt_signed (signer: Keypair, options: JsValue) -> Maybe<String> {
+    let (mut psbt, _) = split_psbt_wrap(&options, None, None)?;
+    Pst(psbt).to_signed_hex(&signer)
 }
 
 #[wasm_bindgen(js_name = splitInspect)]
-pub fn split_psbt_multi_inspect (options: &JsValue) -> Maybe<JsValue> {
-    let (mut psbt, utxos) = split_psbt_multi_wrap(options, None, None)?;
-    let psbt = Pst(psbt).add_signatures(&utxos).0;
-    try_!("interim ser/de failed": JSON::parse(serde_json::to_string(&psbt)?.as_str()))
+pub fn split_psbt_inspect (signer: Option<Keypair>, options: JsValue) -> Maybe<JsValue> {
+    let mut pst = Pst(split_psbt_wrap(&options, None, None)?.0);
+    if let Some(signer) = signer { pst = Pst(pst.to_signed_impl(&signer)?) }
+    ret_psbt(&pst.0)
 }
 
-fn split_psbt_multi_wrap (
+fn split_psbt_wrap (
     options: &JsValue, sender: Option<Address>, receiv: Option<Address>,
 ) -> Maybe<Signable> {
     let asset  = get!(options, "asset",  arg_asset_id)?;
@@ -202,10 +202,10 @@ fn split_psbt_multi_wrap (
     let fee    = get!(options, "fee",    arg_sats)?;
     let sender = match sender { Some(s) => s, None => get!(options, "sender",    arg_address)? };
     let receiv = match receiv { Some(r) => r, None => get!(options, "recipient", arg_address)? };
-    split_psbt_multi_impl(asset, &utxos, &sender, &receiv, amount, fee)
+    split_psbt_impl(asset, &utxos, &sender, &receiv, amount, fee)
 }
 
-fn split_psbt_multi_impl (
+fn split_psbt_impl (
     asset_id:  AssetId,
     utxos_in:  &[(OutPoint, TxOut)],
     sender:    &Address,
@@ -214,14 +214,24 @@ fn split_psbt_multi_impl (
     fee:       u64
 ) -> Maybe<Signable> {
     let mut total = 0;
-    let mut inputs = vec![];
+    let mut pset = PartiallySignedTransaction::new_v2();
     let mut utxos  = vec![];
     for (index, (outpoint, utxo)) in utxos_in.iter().enumerate() {
         if let Some(explicit_asset) = utxo.asset.explicit() {
             if explicit_asset == asset_id {
                 if let Some(explicit_value) = utxo.value.explicit() {
                     total += explicit_value;
-                    inputs.push(outpoint);
+                    let mut input = Input::from_txin(TxIn {
+                        previous_output: outpoint.clone(),
+                        ..Default::default()
+                        //is_pegin:        false,
+                        //script_sig:      Script::new(),
+                        //sequence:        Sequence::MAX,
+                        //asset_issuance:  AssetIssuance::null(),
+                        //witness:         TxInWitness::empty(),
+                    });
+                    input.witness_utxo = Some(utxo.clone());
+                    pset.add_input(input);
                     utxos.push(utxo.clone());
                 } else {
                     return err!("non-explicit value in utxo #{index}")
@@ -233,18 +243,19 @@ fn split_psbt_multi_impl (
             return err!("non-explicit asset in utxo #{index}")
         }
     }
-    let inputs = inputs.into_iter().map(|o|tx_input(*o)).collect::<Vec<_>>();
     let charged = amount + fee;
     if charged > total {
         return err!("amount {amount} + fee {fee} > total {total}")
     }
-    let mut outputs = vec![tx_output(recipient.script_pubkey(), asset_id, amount)];
+    pset.add_output(Output::from_txout(tx_output(recipient.script_pubkey(), asset_id, amount)));
     if charged < total {
         let change = total - charged;
-        outputs.push(tx_output(sender.script_pubkey(), asset_id, change));
+        pset.add_output(Output::from_txout(tx_output(sender.script_pubkey(), asset_id, change)));
     }
-    outputs.push(elements::TxOut::new_fee(fee, asset_id));
-    Ok((PartiallySignedTransaction::from_tx(transaction(inputs, outputs)), utxos))
+    if fee > 0 {
+        pset.add_output(Output::from_txout(TxOut::new_fee(fee, asset_id)));
+    }
+    Ok((pset, utxos))
 }
 
 fn find_utxo (tx: &Transaction, address: &Address) -> Maybe<(OutPoint, TxOut)> {
@@ -281,32 +292,37 @@ pub fn pst (arg: Object) -> Maybe<Pst> {
         ret_tx(&self.tx()?)
     }
     /// Simplified sign procedure.
+    #[wasm_bindgen(js_name = toSigned)]
+    pub fn to_signed (&self, keypair: &Keypair) -> Maybe<JsValue> {
+        ret_pset(&self.to_signed_impl(keypair)?)
+    }
+    /// Simplest sign procedure. returning the TX bytes directly.
     #[wasm_bindgen(js_name = toSignedHex)]
     pub fn to_signed_hex (&self, keypair: &Keypair) -> Maybe<String> {
-      let mut pset = self.0.clone();
-      let tx = extract_tx(&pset)?;
-      let mut sighash_cache = SighashCache::new(&tx);
-      let genesis_hash = BlockHash::all_zeros(); // not used at all for sighash calculation (?)
-      let msgs = pset.inputs().iter().enumerate().map(|(index, _input)|Ok(
-          pset.sighash_msg(index, &mut sighash_cache, None, genesis_hash)?.to_secp_msg()
-      )).collect::<Maybe<Vec<_>>>()?;
-      for (i, input) in pset.inputs_mut().iter_mut().enumerate() {
-          let sig = secp256k1::SECP256K1.sign_ecdsa(&msgs[i], &keypair.0.secret_key());
-          let sig = sig.serialize_der();
-          let mut sig = Vec::from(&sig[..]);
-          sig.push(EcdsaSighashType::All as u8);
-          input.partial_sigs.insert(keypair.0.public_key().into(), sig);
-      }
-      pset_to_hex(&pset)
+        pset_to_hex(&self.to_signed_impl(keypair)?)
+    }
+    fn to_signed_impl (&self, keypair: &Keypair) -> Maybe<PartiallySignedTransaction> {
+        let mut pset = self.0.clone();
+        let tx = extract_tx(&pset)?;
+        let mut sighash_cache = SighashCache::new(&tx);
+        let genesis_hash = BlockHash::all_zeros(); // not used at all for sighash calculation (?)
+        let msgs = pset.inputs().iter().enumerate().map(|(index, _input)|Ok(
+            pset.sighash_msg(index, &mut sighash_cache, None, genesis_hash)?.to_secp_msg()
+        )).collect::<Maybe<Vec<_>>>()?;
+        for (i, input) in pset.inputs_mut().iter_mut().enumerate() {
+            let sig = SECP256K1.sign_ecdsa(&msgs[i], &keypair.0.secret_key());
+            let sig = sig.serialize_der();
+            let mut sig = Vec::from(&sig[..]);
+            sig.push(EcdsaSighashType::All as u8);
+            let pubkey = keypair.0.public_key().serialize();
+            // https://learnmeabitcoin.com/technical/script/p2wpkh/
+            input.final_script_witness = Some(vec![sig.clone(), pubkey.into()]);
+            debug!("input: {input:#?} sig {} {sig:?} / {} {pubkey:?}", sig.len(), pubkey.len());
+        }
+        Ok(pset)
     }
     fn tx (&self) -> Maybe<Transaction> {
         extract_tx(&self.0)
-    }
-    fn add_signatures (mut self, utxos: &[TxOut]) -> Self {
-        for (index, utxo) in utxos.into_iter().enumerate() {
-            self.0.inputs_mut()[index].witness_utxo = Some(utxo.clone());
-        }
-        self
     }
 }
 
@@ -432,7 +448,7 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
     /// For manual signing.
     #[wasm_bindgen(js_name = commitPsbt)]
     pub fn commit_psbt (&self, options: &JsValue) -> Maybe<JsValue> {
-        let (psbt, _) = split_psbt_multi_wrap(options, None, Some(self.p2tr()?))?;
+        let (psbt, _) = split_psbt_wrap(options, None, Some(self.p2tr()?))?;
         match JSON::parse(serde_json::to_string(&psbt)?.as_str()) {
             Ok(psbt) => Ok(psbt),
             Err(_)   => err!("failed to deserialize interim commit psbt")
@@ -440,7 +456,7 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
     }
 
     fn redeem_psbt_utxo (&self, opts: &JsValue) -> Maybe<Signable> {
-        split_psbt_multi_wrap(opts, Some(self.p2tr()?), None)
+        split_psbt_wrap(opts, Some(self.p2tr()?), None)
     }
 
     /// Partially-signed redeem transaction without witnesses.
@@ -455,7 +471,6 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
     #[wasm_bindgen(js_name = redeemSighash)]
     pub fn redeem_sighash (&self, options: JsValue) -> Maybe<Uint8Array> {
         let (psbt, utxos) = self.redeem_psbt_utxo(&options)?;
-        debug!("UTXOS MULTI={utxos:#?}");
         ret_psbt_sighash_all(&self.env(&psbt, &utxos)?)
     }
 
@@ -516,6 +531,11 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
         Ok(tap)
     }
 
+    /// Generate Pay-to-TapRoot [Address]
+    ///
+    /// The program's P2TR address is the main compile artifact.
+    /// It represents the combination of chain, program, and parameters,
+    /// which is configured during compilation.
     fn p2tr (&self) -> Maybe<Address> {
         let tap = self.tap()?;
         let key = tap.internal_key();
@@ -646,11 +666,11 @@ fn arg_string (input: JsValue) -> Maybe<String> {
 }
 
 fn arg_asset_id (bytes: JsValue) -> Maybe<AssetId> {
-    let bytes = required!("asset id: not string": bytes.as_string())?;
-    let mut bytes = try_!("asset id: not base16": hex::decode(bytes.trim()))?;
-    bytes.reverse();
-    let tx = try_!("asset id: not parsed": AssetId::from_slice(&bytes))?;
-    Ok(tx)
+    if let Some(string) = bytes.as_string() {
+        try_debug!("asset id: invalid": AssetId::from_str(&bytes.as_string().unwrap_or_default()))
+    } else {
+        err!("arg_asset_id: must be 64ch string (32 bytes in hex), got: {bytes:?}")
+    }
 }
 
 fn arg_utxos (options: JsValue) -> Maybe<Vec<(OutPoint, TxOut)>> {
