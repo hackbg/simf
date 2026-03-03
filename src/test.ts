@@ -4,6 +4,7 @@ import * as SimplicityHL from './sdk.ts';
 import { pubECDSA } from 'npm:@scure/btc-signer/utils.js';
 import { p2wpkh } from 'npm:@scure/btc-signer';
 import Bitcoin from '../../Bitcoin/Bitcoin.ts';
+import { Base16 } from '../../../library/Number.ts';
 import Test from '../../../library/Test.ts';
 import Fn from '../../../library/Fn.ts';
 
@@ -177,7 +178,6 @@ function TestSimplicityHL (Chain: typeof Bitcoin.ElementsRegtest) {
     /** Function that provides witness data. */
     provideWitness = null as null|Fn<[Uint8Array<ArrayBufferLike>], Fn.Async<object>>,
   } = {}) {
-    const fail = shouldFail;
     const cost = fee;
     return Fn.Name(`${name} (${p2tr||'unspecified P2TR'})`, testExample, {
       shouldFail, name, src, cost, cmr, p2tr, paramTypes, witnessTypes,
@@ -186,27 +186,48 @@ function TestSimplicityHL (Chain: typeof Bitcoin.ElementsRegtest) {
     })
     async function testExample (context: Bitcoin) {
       const { rpc, rest } = context;
+
       // Compile the program.
       const opts = { genesis, chain: Chain.ID, args: provideParams ? await provideParams() : undefined };
       const prog = await SimplicityHL.Program(src, opts);
-      // Check against pre-defined CMR/P2TR.
+
+      // Check against expected program address.
+      // (Only possible for programs  without params.)
       if (p2tr) equal(prog.p2tr, p2tr);
+
       // Fund program from deployer
       const id = await rpc.sendtoaddress(p2tr, String(1));
-      const previous = testSplitTx(await rest.tx(id), p2tr, 1, cost).hex;
+      const previous = testSplitTx(await rest.tx(id), p2tr, 1, cost);
+
       // Create local spender wallet and import it to RPC:
       const recipient = p2wpkh(PUB_ECDSA, NETWORK).address;
       await rpc.importaddress(recipient);
+
       // Note current balance:
       await rpc.rescanblockchain();
       const balance = ((await rpc.getreceivedbyaddress(recipient, 0)) as { bitcoin: number }).bitcoin;
+
+      const fee         = 1e-4;
+      const amount      = 1. - fee;
+
+      // Try the new code path:
+      const asset = Bitcoin.ElementsRegtest.BITCOIN;
+      const txid  = previous.txid;
+      const vout  = previous.vout.filter(x=>x.scriptPubKey.address === p2tr)[0];
+      if (!vout) throw new Error('no corresponding vout found');
+      const utxos = [{ txid, vout: vout.n, recipient: vout.scriptPubKey.address, asset, value: vout.value }];
+      const sighashMultiOpts = { asset, utxos, recipient, amount, fee };
+      const sighashMulti = Base16.encode(prog.redeemSighashMulti(sighashMultiOpts));
+
       // Try spending from program:
-      const fee = 1e-4;
-      const amount = 1. - fee;
-      const sighash = prog.redeemSighash({ previous, amount, fee, recipient });
-      const witness = provideWitness ? await provideWitness(sighash) : {};
-      const redeemArgs = { rpc, rest, previous, amount, fee, witness, recipient };
-      if (fail) {
+      const sighashOpts = { previous: previous.hex, amount, fee, recipient };
+      const sighash     = prog.redeemSighash(sighashOpts);
+      equal(Base16.encode(sighash), sighashMulti, 'discrepancy in sighash code paths');
+
+      const witness     = provideWitness ? await provideWitness(sighash) : {};
+      const redeemArgs  = { rpc, rest, ...sighashOpts, witness };
+
+      if (shouldFail) {
         // TX is expected to fail
         rejects(()=>prog.rpcRedeem(redeemArgs));
         // Balance is expected to remain the same

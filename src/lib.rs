@@ -217,7 +217,7 @@ pub fn split_psbt (options: &JsValue) -> Maybe<JsValue> {
 fn split_psbt_wrap (options: &JsValue, sender: Option<Address>, receiv: Option<Address>)
     -> Maybe<Signable>
 {
-    let previous = get!(options, "previous",  arg_tx)?;
+    let previous = get!(options, "previous", arg_tx)?;
     let sender = match sender { Some(s) => s, None => get!(options, "sender",    arg_address)? };
     let receiv = match receiv { Some(r) => r, None => get!(options, "recipient", arg_address)? };
     let amount = get!(options, "amount", arg_sats)?;
@@ -453,6 +453,7 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
 }
 
 #[wasm_bindgen] impl Program {
+
     /// Produce JSON description of program object.
     #[wasm_bindgen(js_name = toJSON)]
     pub fn to_json (&self) -> Object {
@@ -494,26 +495,22 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
         split_psbt_wrap(opts, Some(self.p2tr()?), None)
     }
 
-    fn redeem_psbt_utxo_multi (&self, options: &JsValue) -> Maybe<Signable> {
-        split_psbt_multi_impl(
-            get!(options,  "asset",     arg_asset_id)?,
-            &get!(options, "utxos",     arg_utxos)?,
-            &self.p2tr()?,
-            &get!(options, "recipient", arg_address)?,
-            get!(options,  "amount",    arg_sats)?,
-            get!(options,  "fee",       arg_sats)?
-        )
+    fn redeem_psbt_utxo_multi (&self, opts: &JsValue) -> Maybe<Signable> {
+        split_psbt_multi_wrap(opts, Some(self.p2tr()?), None)
     }
 
     /// Partially-signed redeem transaction without witnesses.
     /// For manual signing.
     #[wasm_bindgen(js_name = redeemPsbt)]
     pub fn redeem_psbt (&self, options: &JsValue) -> Maybe<JsValue> {
-        let (psbt, _) = self.redeem_psbt_utxo(options)?;
-        match JSON::parse(serde_json::to_string(&psbt)?.as_str()) {
-            Ok(psbt) => Ok(psbt),
-            Err(_)   => err!("failed to deserialize interim redeem psbt")
-        }
+        ret_psbt(&self.redeem_psbt_utxo(options)?.0)
+    }
+
+    /// Partially-signed redeem transaction without witnesses.
+    /// For manual signing.
+    #[wasm_bindgen(js_name = redeemPsbtMulti)]
+    pub fn redeem_psbt_multi (&self, options: &JsValue) -> Maybe<JsValue> {
+        ret_psbt(&self.redeem_psbt_utxo_multi(options)?.0)
     }
 
     /// SIGHASH_ALL of redeem transaction.
@@ -521,11 +518,17 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
     #[wasm_bindgen(js_name = redeemSighash)]
     pub fn redeem_sighash (&self, options: JsValue) -> Maybe<Uint8Array> {
         let (psbt, utxos) = self.redeem_psbt_utxo(&options)?;
-        let env = self.env(&psbt, utxos.into_iter().map(ElementsUtxo::from).collect())?;
-        let all = env.c_tx_env().sighash_all().to_byte_array();
-        let u8a = Uint8Array::new_with_length(all.len() as u32);
-        u8a.copy_from(&all);
-        Ok(u8a)
+        debug!("UTXOS SOLO= {utxos:#?}");
+        ret_psbt_sighash_all(&self.env(&psbt, &utxos)?)
+    }
+
+    /// SIGHASH_ALL of redeem transaction.
+    /// Sign this to provide witness data.
+    #[wasm_bindgen(js_name = redeemSighashMulti)]
+    pub fn redeem_sighash_multi (&self, options: JsValue) -> Maybe<Uint8Array> {
+        let (psbt, utxos) = self.redeem_psbt_utxo_multi(&options)?;
+        debug!("UTXOS MULTI={utxos:#?}");
+        ret_psbt_sighash_all(&self.env(&psbt, &utxos)?)
     }
 
     /// Signed redeem transaction.
@@ -534,7 +537,7 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
     pub fn redeem_tx (&self, options: JsValue) -> Maybe<Object> {
         let wit = get!(options, "witness", arg_witness)?;
         let (mut psbt, utxos) = self.redeem_psbt_utxo(&options)?;
-        let env = self.env(&psbt, utxos.into_iter().map(ElementsUtxo::from).collect())?;
+        let env = self.env(&psbt, &utxos)?;
         let sat = try_!("satisfy": self.compiled.satisfy_with_env(wit, Some(&env)))?;
         let (program_bytes, witness_bytes) = sat.redeem().encode_to_vec();
         psbt.inputs_mut()[0].final_script_witness = Some(vec![
@@ -544,29 +547,6 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
             self.control_block()?.serialize(),
         ]);
         ret_tx(&try_!("extract final tx:": psbt.extract_tx())?)
-    }
-
-    /// Partially-signed redeem transaction without witnesses.
-    /// For manual signing.
-    #[wasm_bindgen(js_name = redeemPsbtMulti)]
-    pub fn redeem_psbt_multi (&self, options: &JsValue) -> Maybe<JsValue> {
-        let (psbt, _) = self.redeem_psbt_utxo_multi(options)?;
-        match JSON::parse(serde_json::to_string(&psbt)?.as_str()) {
-            Ok(psbt) => Ok(psbt),
-            Err(_)   => err!("failed to deserialize interim redeem psbt")
-        }
-    }
-
-    /// SIGHASH_ALL of redeem transaction.
-    /// Sign this to provide witness data.
-    #[wasm_bindgen(js_name = redeemSighashMulti)]
-    pub fn redeem_sighash_multi (&self, options: JsValue) -> Maybe<Uint8Array> {
-        let (psbt, utxos) = self.redeem_psbt_utxo_multi(&options)?;
-        let env = self.env(&psbt, utxos.into_iter().map(ElementsUtxo::from).collect())?;
-        let all = env.c_tx_env().sighash_all().to_byte_array();
-        let u8a = Uint8Array::new_with_length(all.len() as u32);
-        u8a.copy_from(&all);
-        Ok(u8a)
     }
 
     /// Signed redeem transaction.
@@ -575,7 +555,7 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
     pub fn redeem_tx_multi (&self, options: JsValue) -> Maybe<Object> {
         let wit = get!(options, "witness", arg_witness)?;
         let (mut psbt, utxos) = self.redeem_psbt_utxo_multi(&options)?;
-        let env = self.env(&psbt, utxos.into_iter().map(ElementsUtxo::from).collect())?;
+        let env = self.env(&psbt, &utxos)?;
         let sat = try_!("satisfy": self.compiled.satisfy_with_env(wit, Some(&env)))?;
         let (program_bytes, witness_bytes) = sat.redeem().encode_to_vec();
         psbt.inputs_mut()[0].final_script_witness = Some(vec![
@@ -587,10 +567,11 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
         ret_tx(&try_!("extract final tx:": psbt.extract_tx())?)
     }
 
-    fn env (&self, psbt: &PartiallySignedTransaction, ins: Vec<ElementsUtxo>) -> Maybe<Env> {
+    fn env (&self, psbt: &PartiallySignedTransaction, utxos: &[TxOut]) -> Maybe<Env> {
+        let utxos: Vec<ElementsUtxo> = utxos.into_iter().cloned().map(ElementsUtxo::from).collect();
         let tx = Arc::new(try_!("extract preliminary tx:": psbt.extract_tx())?);
         Ok(Env::new(
-            tx.clone(), ins, 0, self.cmr(), self.control_block()?, None, self.genesis.as_ref().clone()
+            tx.clone(), utxos, 0, self.cmr(), self.control_block()?, None, self.genesis.as_ref().clone()
         ))
     }
 
@@ -636,6 +617,13 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
         }))
     }
 
+}
+
+fn ret_psbt_sighash_all (env: &Env) -> Maybe<Uint8Array> {
+    let all = env.c_tx_env().sighash_all().to_byte_array();
+    let u8a = Uint8Array::new_with_length(all.len() as u32);
+    u8a.copy_from(&all);
+    Ok(u8a)
 }
 
 /// BIP-0341's NUMS key (magic unspendable key).
@@ -749,8 +737,9 @@ fn arg_string (input: JsValue) -> Maybe<String> {
 
 fn arg_asset_id (bytes: JsValue) -> Maybe<AssetId> {
     let bytes = required!("asset id: not string": bytes.as_string())?;
-    let bytes = try_!("asset id: not base16": hex::decode(bytes.trim()))?;
-    let tx    = try_!("asset id: not parsed": AssetId::from_slice(&bytes))?;
+    let mut bytes = try_!("asset id: not base16": hex::decode(bytes.trim()))?;
+    bytes.reverse();
+    let tx = try_!("asset id: not parsed": AssetId::from_slice(&bytes))?;
     Ok(tx)
 }
 
@@ -839,6 +828,13 @@ fn ret_u8a (bytes: &[u8]) -> Uint8Array {
     let u8a = Uint8Array::new_with_length(bytes.len() as u32);
     u8a.copy_from(bytes);
     u8a
+}
+
+fn ret_psbt (psbt: &PartiallySignedTransaction) -> Maybe<JsValue> {
+    match JSON::parse(serde_json::to_string(&psbt)?.as_str()) {
+        Ok(psbt) => Ok(psbt),
+        Err(_)   => err!("failed to deserialize interim psbt")
+    }
 }
 
 fn ret_tx (tx: &Transaction) -> Maybe<Object> {
