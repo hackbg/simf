@@ -44,7 +44,7 @@ use wasm_bindgen::prelude::*;
 
 /// Log to JS console verbosely.
 #[allow(unused)] macro_rules! debug(($msg:literal $(, $expr:expr)*) => {
-    web_sys::console::debug_1(&format!($msg $(, $expr)*).into())
+    #[cfg(feature = "debug")] web_sys::console::debug_1(&format!($msg $(, $expr)*).into())
 });
 
 /// Log a warning to the JS console.
