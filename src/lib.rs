@@ -317,7 +317,7 @@ pub fn pst (arg: Object) -> Maybe<Pst> {
             let pubkey = keypair.0.public_key().serialize();
             // https://learnmeabitcoin.com/technical/script/p2wpkh/
             input.final_script_witness = Some(vec![sig.clone(), pubkey.into()]);
-            debug!("input: {input:#?} sig {} {sig:?} / {} {pubkey:?}", sig.len(), pubkey.len());
+            debug!("input: {input:#?}");
         }
         Ok(pset)
     }
