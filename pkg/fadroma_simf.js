@@ -449,6 +449,51 @@ export class Program {
         return takeFromExternrefTable0(ret[0]);
     }
     /**
+     * Signed redeem transaction.
+     * Broadcast it to redeem funds.
+     * @param {any} options
+     * @returns {object}
+     */
+    redeemTxMulti(options) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ret = wasm.program_redeemTxMulti(this.__wbg_ptr, options);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * Partially-signed redeem transaction without witnesses.
+     * For manual signing.
+     * @param {any} options
+     * @returns {any}
+     */
+    redeemPsbtMulti(options) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ret = wasm.program_redeemPsbtMulti(this.__wbg_ptr, options);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * SIGHASH_ALL of redeem transaction.
+     * Sign this to provide witness data.
+     * @param {any} options
+     * @returns {Uint8Array}
+     */
+    redeemSighashMulti(options) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ret = wasm.program_redeemSighashMulti(this.__wbg_ptr, options);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
      * Produce JSON description of program object.
      * @returns {object}
      */
@@ -646,6 +691,46 @@ export function splitPsbt(options) {
 }
 
 /**
+ * @param {any} options
+ * @returns {any}
+ */
+export function splitPsbtMulti(options) {
+    const ret = wasm.splitPsbtMulti(options);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {Keypair} signer
+ * @param {any} options
+ * @returns {string}
+ */
+export function splitPsbtMultiSigned(signer, options) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        _assertClass(signer, Keypair);
+        if (signer.__wbg_ptr === 0) {
+            throw new Error('Attempt to use a moved value');
+        }
+        const ret = wasm.splitPsbtMultiSigned(signer.__wbg_ptr, options);
+        var ptr1 = ret[0];
+        var len1 = ret[1];
+        if (ret[3]) {
+            ptr1 = 0; len1 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred2_0 = ptr1;
+        deferred2_1 = len1;
+        return getStringFromWasm0(ptr1, len1);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
+}
+
+/**
  * @param {Keypair} signer
  * @param {any} options
  * @returns {string}
@@ -831,6 +916,9 @@ function __wbg_get_imports() {
     imports.wbg.__wbg_crypto_574e78ad8b13b65f = function() { return logError(function (arg0) {
         const ret = arg0.crypto;
         return ret;
+    }, arguments) };
+    imports.wbg.__wbg_debug_9d0c87ddda3dc485 = function() { return logError(function (arg0) {
+        console.debug(arg0);
     }, arguments) };
     imports.wbg.__wbg_error_7534b8e9a36f1ab4 = function() { return logError(function (arg0, arg1) {
         let deferred0_0;

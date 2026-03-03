@@ -20,10 +20,34 @@ export type Keypair = WasmKeypair;
 /** SimplicityHL compiler instance configured for specific chain. */
 export type Compiler = WasmCompiler;
 
+/** Collection of SimplicityHL program argument types (template parameters or witness values). */
+export type ArgTypes = Record<string, string>;
+
+/** Collection of SimplicityHL program arguments with values (template parameters or witness values). */
+export type Args = Record<string, Arg>;
+
+/** SimplicityHL program argument (template parameter or witness value). */
+export type Arg = { type: string, value: unknown };
+
 /** SimplicityHL program compiler for specific chain and parameters. */
 export type Program = WasmProgram & {
   rpcCommit: Fn,
   rpcRedeem: Fn,
+};
+
+/** Parameters for commit transaction. */
+export type Call = { previous: unknown, amount: Num, fee: Num };
+
+/** Parameters for commit transaction. */
+export type Commit = Call & { from: string };
+
+/** Parameters for redeem transaction. */
+export type Redeem = Call & { recipient: string, witness?: Args };
+
+/** Connection to Elements RPC for sending and signing transactions. */
+export type Connect = (Log & Partial<Pick<Bitcoin, 'rpc'|'rest'>>) & {
+  send? (hex: Uint8Array): Fn.Async<unknown>
+  sign? (hex: Uint8Array): Fn.Async<Uint8Array>
 };
 
 /** Load SimplicityHL WASM module. */
@@ -108,27 +132,6 @@ export async function Program (source: string, {
     }
   });
 }
-
-/** Connection to Elements RPC for sending and signing transactions. */
-export type Connect = (Log & Partial<Pick<Bitcoin, 'rpc'|'rest'>>) & {
-  send? (hex: Uint8Array): Fn.Async<unknown>
-  sign? (hex: Uint8Array): Fn.Async<Uint8Array>
-};
-
-/** Parameters for commit transaction. */
-export interface Call { previous: unknown, amount: Num, fee: Num }
-
-/** Parameters for commit transaction. */
-export interface Commit extends Call { from: string }
-
-/** Parameters for redeem transaction. */
-export interface Redeem extends Call { recipient: string, witness?: Args }
-
-/** Collection of SimplicityHL program arguments (template parameters or witness values). */
-export interface Args extends Record<string, Arg> {}
-
-/** SimplicityHL program argument (template parameter or witness value). */
-export interface Arg { type: string, value: unknown };
 
 /** Format a `{ type, value }` pair as used to pass `param` and `witness` values. */
 export function Arg (type: string, value?: unknown) { return { type, value } }

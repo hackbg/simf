@@ -57,7 +57,7 @@ macro_rules! err(($msg:literal $(, $expr:expr)*) => {
 });
 
 /// Return [JsError] if expression evaluates to false:
-macro_rules! asserted(($expr:expr) => {
+#[allow(unused)] macro_rules! asserted(($expr:expr) => {
     if !$expr { return err!("assertion failed: {}", stringify!($expr)) }
 });
 
@@ -200,33 +200,121 @@ pub fn split_psbt (options: &JsValue) -> Maybe<JsValue> {
     )?;
     let bytes = try_!("extract final tx:": psbt.extract_tx())?.serialize();
     match JSON::parse(serde_json::to_string(&psbt)?.as_str()) {
+        Err(_) => err!("failed to deserialize interim redeem psbt"),
         Ok(psbt) => {
             set!(psbt, "bytes", ret_u8a(&bytes));
             set!(psbt, "hex",   hex::encode(&bytes));
             Ok(psbt)
         }
-        Err(_)   => err!("failed to deserialize interim redeem psbt")
     }
 }
 
 fn split_psbt_impl (
     previous: &Transaction, sender: &Address, recipient: &Address, amount: u64, fee: u64
 ) -> Maybe<(PartiallySignedTransaction, TxOut)> {
-    let (previous_output, utxo) = find_utxo(&previous, &sender)?;
+    let (outpoint, utxo) = find_utxo(&previous, &sender)?;
+    //debug!("find_utxo: {outpoint:?} + {utxo:?}");
     if let Some(value) = utxo.value.explicit() {
         let asset = utxo.asset.explicit().unwrap();
-        let inputs = vec![tx_input(previous_output)];
-        let mut outputs = vec![tx_output(asset, recipient.clone(), amount)];
+        let inputs = vec![tx_input(outpoint)];
+        let mut outputs = vec![tx_output(recipient.script_pubkey(), asset, amount)];
         let charged = amount + fee;
         if charged < value {
             let change = value - charged;
-            outputs.push(tx_output(asset, sender.clone(), change));
+            outputs.push(tx_output(sender.script_pubkey(), asset, change));
         }
         outputs.push(elements::TxOut::new_fee(fee, asset));
         Ok((PartiallySignedTransaction::from_tx(transaction(inputs, outputs)), utxo))
     } else {
         err!("need explicit utxo")
     }
+}
+
+#[wasm_bindgen(js_name = splitPsbtMultiSigned)]
+pub fn split_psbt_multi_signed (signer: &Keypair, options: &JsValue) -> Maybe<String> {
+    let (mut psbt, utxos) = split_psbt_multi_impl(
+        get!(options,  "asset",     arg_asset_id)?,
+        &get!(options, "utxos",     arg_utxos)?,
+        &get!(options, "sender",    arg_address)?,
+        &get!(options, "recipient", arg_address)?,
+        get!(options,  "amount",    arg_sats)?,
+        get!(options,  "fee",       arg_sats)?
+    )?;
+    for (index, utxo) in utxos.into_iter().enumerate() {
+        debug!("{index}: {:?} <=> {:?}", psbt.inputs().get(index), &utxo);
+        psbt.inputs_mut()[index].witness_utxo = Some(utxo);
+    }
+    Pst(psbt).to_signed_hex(signer)
+}
+
+#[wasm_bindgen(js_name = splitPsbtMulti)]
+pub fn split_psbt_multi (options: &JsValue) -> Maybe<JsValue> {
+    let (psbt, _) = split_psbt_multi_impl(
+        get!(options,  "asset",     arg_asset_id)?,
+        &get!(options, "utxos",     arg_utxos)?,
+        &get!(options, "sender",    arg_address)?,
+        &get!(options, "recipient", arg_address)?,
+        get!(options,  "amount",    arg_sats)?,
+        get!(options,  "fee",       arg_sats)?
+    )?;
+    let bytes = try_!("extract final tx:": psbt.extract_tx())?.serialize();
+    match JSON::parse(serde_json::to_string(&psbt)?.as_str()) {
+        Err(_) => err!("failed to deserialize interim redeem psbt"),
+        Ok(psbt) => {
+            set!(psbt, "bytes", ret_u8a(&bytes));
+            set!(psbt, "hex",   hex::encode(&bytes));
+            Ok(psbt)
+        }
+    }
+}
+
+fn split_psbt_multi_impl (
+    asset_id:  AssetId,
+    utxos_in:  &[(OutPoint, TxOut)],
+    sender:    &Address,
+    recipient: &Address,
+    amount:    u64,
+    fee:       u64
+) -> Maybe<(PartiallySignedTransaction, Vec<TxOut>)> {
+    debug!("{utxos_in:#?}");
+    let mut total = 0;
+    let mut inputs = vec![];
+    let mut utxos  = vec![];
+    for (outpoint, utxo) in utxos_in.iter() {
+        inputs.push(outpoint);
+        total += utxo.value.explicit().expect("only explicit values are supported");
+        if utxo.asset.explicit().expect("only explicit assets are supported") != asset_id {
+            return err!("unexpected asset in utxo")
+        }
+    }
+    let inputs = inputs.into_iter().map(|o|tx_input(*o)).collect::<Vec<_>>();
+    let charged = amount + fee;
+    if charged > total {
+        return err!("amount {amount} + fee {fee} > total {total}")
+    }
+    let mut outputs = vec![tx_output(recipient.script_pubkey(), asset_id, amount)];
+    if charged < total {
+        let change = total - charged;
+        outputs.push(tx_output(sender.script_pubkey(), asset_id, change));
+    }
+    outputs.push(elements::TxOut::new_fee(fee, asset_id));
+    Ok((PartiallySignedTransaction::from_tx(transaction(inputs, outputs)), utxos))
+}
+
+fn find_utxo (tx: &Transaction, address: &Address) -> Maybe<(OutPoint, TxOut)> {
+    let mut outpoint: Option<OutPoint> = Default::default();
+    let mut tx_out:   Option<TxOut>    = Default::default();
+    for (index, output) in tx.output.iter().enumerate() {
+        //debug!("\nindex={index}\n  output={output:?}\n  value={:?}", &output.value);
+        //debug!("  {address:?} {:?} {:?}", &output.script_pubkey, &address.script_pubkey());
+        if output.script_pubkey == address.script_pubkey() {
+            //debug!("  using tx_out #{index}");
+            outpoint = Some(OutPoint::new(tx.txid(), index as u32));
+            tx_out   = Some(output.clone());
+            break;
+        }
+    }
+    Ok((required!(outpoint)?, required!(tx_out)?))
 }
 
 /// Construct a [Transaction] from [TxIn]s and [TxOut]s.
@@ -283,7 +371,6 @@ pub fn pst (arg: Object) -> Maybe<Pst> {
       let mut pset = self.0.clone();
       let tx = extract_tx(&pset)?;
       let mut sighash_cache = SighashCache::new(&tx);
-      let mut signature_added = 0;
       let public_key = keypair.public_key();
       let genesis_hash = BlockHash::all_zeros(); // not used at all for sighash calculation (?)
       let msgs = pset.inputs().iter().enumerate().map(|(index, input)|Ok(
@@ -488,6 +575,58 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
         ret_tx(&try_!("extract final tx:": psbt.extract_tx())?)
     }
 
+    fn redeem_psbt_utxo_multi (&self, options: &JsValue) -> Maybe<(PartiallySignedTransaction, Vec<TxOut>)> {
+        split_psbt_multi_impl(
+            get!(options,  "asset",     arg_asset_id)?,
+            &get!(options, "utxos",     arg_utxos)?,
+            &self.p2tr()?,
+            &get!(options, "recipient", arg_address)?,
+            get!(options,  "amount",    arg_sats)?,
+            get!(options,  "fee",       arg_sats)?
+        )
+    }
+
+    /// Partially-signed redeem transaction without witnesses.
+    /// For manual signing.
+    #[wasm_bindgen(js_name = redeemPsbtMulti)]
+    pub fn redeem_psbt_multi (&self, options: &JsValue) -> Maybe<JsValue> {
+        let (psbt, _) = self.redeem_psbt_utxo_multi(options)?;
+        match JSON::parse(serde_json::to_string(&psbt)?.as_str()) {
+            Ok(psbt) => Ok(psbt),
+            Err(_)   => err!("failed to deserialize interim redeem psbt")
+        }
+    }
+
+    /// SIGHASH_ALL of redeem transaction.
+    /// Sign this to provide witness data.
+    #[wasm_bindgen(js_name = redeemSighashMulti)]
+    pub fn redeem_sighash_multi (&self, options: JsValue) -> Maybe<Uint8Array> {
+        let (psbt, utxos) = self.redeem_psbt_utxo_multi(&options)?;
+        let env = self.env(&psbt, utxos.into_iter().map(ElementsUtxo::from).collect())?;
+        let all = env.c_tx_env().sighash_all().to_byte_array();
+        let u8a = Uint8Array::new_with_length(all.len() as u32);
+        u8a.copy_from(&all);
+        Ok(u8a)
+    }
+
+    /// Signed redeem transaction.
+    /// Broadcast it to redeem funds.
+    #[wasm_bindgen(js_name = redeemTxMulti)]
+    pub fn redeem_tx_multi (&self, options: JsValue) -> Maybe<Object> {
+        let wit = get!(options, "witness", arg_witness)?;
+        let (mut psbt, utxos) = self.redeem_psbt_utxo_multi(&options)?;
+        let env = self.env(&psbt, utxos.into_iter().map(ElementsUtxo::from).collect())?;
+        let sat = try_!("satisfy": self.compiled.satisfy_with_env(wit, Some(&env)))?;
+        let (program_bytes, witness_bytes) = sat.redeem().encode_to_vec();
+        psbt.inputs_mut()[0].final_script_witness = Some(vec![
+            witness_bytes,
+            program_bytes,
+            self.cmr_vec(),
+            self.control_block()?.serialize(),
+        ]);
+        ret_tx(&try_!("extract final tx:": psbt.extract_tx())?)
+    }
+
     fn env (&self, psbt: &PartiallySignedTransaction, ins: Vec<ElementsUtxo>) -> Maybe<Env> {
         let tx = Arc::new(try_!("extract preliminary tx:": psbt.extract_tx())?);
         Ok(Env::new(
@@ -555,31 +694,37 @@ fn transaction (input: Vec<TxIn>, output: Vec<TxOut>) -> Transaction {
 }
 
 /// Construct [TxIn] from [OutPoint].
-fn tx_input (previous_output: OutPoint) -> TxIn {
+fn tx_input (outpoint: OutPoint) -> TxIn {
     TxIn {
-        previous_output,
-        is_pegin:       false,
-        script_sig:     Script::new(),
-        sequence:       Sequence::MAX,
-        asset_issuance: AssetIssuance::null(),
-        witness:        TxInWitness::empty(),
+        previous_output: outpoint,
+        is_pegin:        false,
+        script_sig:      Script::new(),
+        sequence:        Sequence::MAX,
+        asset_issuance:  AssetIssuance::null(),
+        witness:         TxInWitness::empty(),
     }
 }
 
 /// Construct [TxOut].
-fn tx_output (asset_id: AssetId, recipient: Address, value: u64) -> TxOut {
+fn tx_output (script_pubkey: Script, asset_id: AssetId, value: u64) -> TxOut {
     TxOut {
-        script_pubkey: recipient.script_pubkey(),
-        value:         TxValue::Explicit(value),
-        asset:         Asset::Explicit(asset_id),
-        nonce:         Nonce::Null,
-        witness:       TxOutWitness::default(),
+        script_pubkey,
+        value:    TxValue::Explicit(value),
+        asset:    Asset::Explicit(asset_id),
+        nonce:    Nonce::Null,
+        witness:  TxOutWitness::default(),
     }
 }
 
 fn arg_address (x: JsValue) -> Maybe<Address> {
     let address = required!("addr: not string": x.as_string())?;
     let address = try_!("addr: not parsed": Address::from_str(&address))?;
+    Ok(address)
+}
+
+fn arg_txid (x: JsValue) -> Maybe<Txid> {
+    let address = required!("txid: not string": x.as_string())?;
+    let address = try_!("txid: not parsed": Txid::from_str(&address))?;
     Ok(address)
 }
 
@@ -646,15 +791,60 @@ fn arg_string (input: JsValue) -> Maybe<String> {
     }
 }
 
+fn arg_asset_id (bytes: JsValue) -> Maybe<AssetId> {
+    let bytes = required!("asset id: not string": bytes.as_string())?;
+    let bytes = try_!("asset id: not base16": hex::decode(bytes.trim()))?;
+    let tx    = try_!("asset id: not parsed": AssetId::from_slice(&bytes))?;
+    Ok(tx)
+}
+
+fn arg_utxos (options: JsValue) -> Maybe<Vec<(OutPoint, TxOut)>> {
+    let mut utxos = vec![];
+    for utxo in Array::from(&options).iter() {
+        utxos.push(arg_utxo(utxo)?);
+    }
+    debug!("utxos={utxos:#?}");
+    Ok(utxos)
+}
+
+fn arg_utxo (options: JsValue) -> Maybe<(OutPoint, TxOut)> {
+    let txid  = get!(options, "txid",      arg_txid)?;
+    let vout  = get!(options, "vout",      arg_u32)?;
+    let recip = get!(options, "recipient", arg_address)?;
+    let asset = get!(options, "asset",     arg_asset_id)?;
+    let value = get!(options, "value",     arg_sats)?;
+    Ok((OutPoint { txid, vout }, TxOut {
+        script_pubkey: recip.script_pubkey(),
+        value: TxValue::Explicit(value),
+        asset: Asset::Explicit(asset),
+        ..Default::default()
+    }))
+}
+
+fn arg_u32 (input: JsValue) -> Maybe<u32> {
+    if BigInt::is_type_of(&input) {
+        warn!("BigInt -> u64 -> u32; check for loss of precision");
+        Ok(try_!("BigInt -> u32": u64::try_from(input))? as u32)
+    } else if Number::is_type_of(&input) {
+        warn!("Number -> u64 -> u32; * 10^8; check for loss of precision");
+        try_!("Number -> u32": f64::try_from(input).map(|x|(x * 100000000.0) as u32))
+    } else if JsString::is_type_of(&input) {
+        warn!("String -> u64 -> u32: use BigInt to avoid typing issues");
+        Ok(try_!("String -> u32": u64::try_from(input))? as u32)
+    } else {
+        return err!("received {:?}: need integer", input.js_typeof())
+    }
+}
+
 fn arg_sats (input: JsValue) -> Maybe<u64> {
     if BigInt::is_type_of(&input) {
-        try_!("bigint->u64": u64::try_from(input))
+        try_!("BigInt -> u64": u64::try_from(input))
     } else if Number::is_type_of(&input) {
-        warn!("number->u64: *10^8, use bigint to avoid precision issues");
-        try_!("number->u64": f64::try_from(input).map(|x|(x * 100000000.0) as u64))
+        warn!("Number -> u64: * 10^8; use BigInt to avoid precision issues");
+        try_!("Number -> u64": f64::try_from(input).map(|x|(x * 100000000.0) as u64))
     } else if JsString::is_type_of(&input) {
-        warn!("string->u64: use bigint to avoid typing issues");
-        try_!("string->u64": u64::try_from(input))
+        warn!("String -> u64: use BigInt to avoid typing issues");
+        try_!("String -> u64": u64::try_from(input))
     } else {
         return err!("received {:?}: need integer", input.js_typeof())
     }
@@ -682,22 +872,6 @@ fn arg_witness (wits: JsValue) -> Maybe<WitnessValues> {
         if let Some(s) = wits.as_string() { return Ok(serde_json::from_str(&s)?); }
     }
     Ok(WitnessValues::default())
-}
-
-fn find_utxo (tx: &Transaction, address: &Address) -> Maybe<(OutPoint, TxOut)> {
-    let mut previous: Option<OutPoint> = Default::default();
-    let mut utxo:     Option<TxOut>    = Default::default();
-    for (index, output) in tx.output.iter().enumerate() {
-        //debug!("\nindex={index}\n  output={output:?}\n  value={:?}", &output.value);
-        //debug!("  {address:?} {:?} {:?}", &output.script_pubkey, &address.script_pubkey());
-        if output.script_pubkey == address.script_pubkey() {
-            //debug!("  using utxo #{index}");
-            previous = Some(OutPoint::new(tx.txid(), index as u32));
-            utxo     = Some(output.clone());
-            break;
-        }
-    }
-    Ok((required!(previous)?, required!(utxo)?))
 }
 
 fn ret_program (program: &Program) -> Maybe<Object> {
