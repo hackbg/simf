@@ -186,9 +186,14 @@ pub fn send_signed (signer: &Keypair, options: &JsValue) -> Maybe<JsValue> {
     Pst(psbt).to_signed(signer)
 }
 
-#[wasm_bindgen(js_name = sendInspect)]
-pub fn send_inspect (options: &JsValue) -> Maybe<JsValue> {
+#[wasm_bindgen(js_name = sendUnsigned)]
+pub fn send_unsigned (options: &JsValue) -> Maybe<JsValue> {
     ret_pst(&send_from_js(options, None, None)?.0)
+}
+
+#[wasm_bindgen(js_name = sendUnsignedTx)]
+pub fn send_unsigned_tx (options: &JsValue) -> Maybe<Object> {
+    ret_tx(&extract_tx(&send_from_js(options, None, None)?.0)?)
 }
 
 fn send_from_js (

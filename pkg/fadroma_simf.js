@@ -581,18 +581,6 @@ export function pst(arg) {
 }
 
 /**
- * @param {any} options
- * @returns {any}
- */
-export function sendInspect(options) {
-    const ret = wasm.sendInspect(options);
-    if (ret[2]) {
-        throw takeFromExternrefTable0(ret[1]);
-    }
-    return takeFromExternrefTable0(ret[0]);
-}
-
-/**
  * @param {Keypair} signer
  * @param {any} options
  * @returns {any}
@@ -603,6 +591,30 @@ export function sendSigned(signer, options) {
         throw new Error('Attempt to use a moved value');
     }
     const ret = wasm.sendSigned(signer.__wbg_ptr, options);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {any} options
+ * @returns {any}
+ */
+export function sendUnsigned(options) {
+    const ret = wasm.sendUnsigned(options);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {any} options
+ * @returns {object}
+ */
+export function sendUnsignedTx(options) {
+    const ret = wasm.sendUnsignedTx(options);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }

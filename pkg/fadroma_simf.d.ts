@@ -109,9 +109,11 @@ export function paramTypes(source: string): object;
 
 export function pst(arg: object): Pst;
 
-export function sendInspect(options: any): any;
-
 export function sendSigned(signer: Keypair, options: any): any;
+
+export function sendUnsigned(options: any): any;
+
+export function sendUnsignedTx(options: any): object;
 
 /**
  * Return a clone of `pst` with signatures by `signer` added to [Input::final_script_witness].
@@ -155,8 +157,9 @@ export interface InitOutput {
   readonly pst_toPset: (a: number) => [number, number, number];
   readonly pst_toSigned: (a: number, b: number) => [number, number, number];
   readonly pst_toTx: (a: number) => [number, number, number];
-  readonly sendInspect: (a: any) => [number, number, number];
   readonly sendSigned: (a: number, b: any) => [number, number, number];
+  readonly sendUnsigned: (a: any) => [number, number, number];
+  readonly sendUnsignedTx: (a: any) => [number, number, number];
   readonly sign: (a: number, b: number) => [number, number, number];
   readonly witnessTypes: (a: any) => [number, number, number];
   readonly rust_0_6_malloc: (a: number) => number;
