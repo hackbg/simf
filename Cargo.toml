@@ -10,7 +10,7 @@ build       = "build.rs"
 crate-type = [ "cdylib", "rlib" ]
 
 [features]
-default = ["debug"]
+default = []
 debug = []
 
 [build-dependencies]

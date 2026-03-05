@@ -81,7 +81,7 @@ build-release:
 
 # Build in dev mode (with stack trace)
 build-wasm-debug:
-  ${WASM_PACK} --debug --no-opt
+  ${WASM_PACK} --debug --no-opt . -F debug
   ${WASM_PKG}
   @just build-inspect
 
