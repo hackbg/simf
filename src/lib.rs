@@ -234,6 +234,8 @@ fn send_impl (
                         //witness:         TxInWitness::empty(),
                     });
                     input.witness_utxo = Some(utxo.clone());
+                    input.amount = Some(explicit_value);
+                    input.asset = Some(explicit_asset);
                     pset.add_input(input);
                     utxos.push(utxo.clone());
                 } else {

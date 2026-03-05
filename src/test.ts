@@ -163,12 +163,13 @@ async function TestSend ({
     console.log({vout});
     // TX2: Fund recipient from sender.
     const asset = ASSETS.DEFAULT;
-    const utxos = [{asset, txid: inputTx.txid, vout: index, value: vout.value, recipient: spka(vout),}]
+    const value = String(vout.value);
+    const utxos = [{asset, txid: inputTx.txid, vout: index, value, recipient: spka(vout),}]
     const signed = sendSigned(keypair(secret1), { sender, recipient, asset, amount, fee, utxos, });
-    console.debug({ signed });
-    const id = await rpc.sendrawtransaction(signed.signedHex);
-    const tx = await rest.tx(id);
-    await rpc.rescanblockchain();
+    console.debug('Signed:', signed);
+    const id = await rpc!.sendrawtransaction(signed.signedHex);
+    const tx = await rest!.tx(id);
+    await rpc!.rescanblockchain();
   })
 }
 
