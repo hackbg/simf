@@ -180,20 +180,18 @@ type Maybe<T> = Result<T, JsError>;
     }
 }
 
-#[wasm_bindgen(js_name = splitSigned)]
-pub fn split_psbt_signed (signer: &Keypair, options: &JsValue) -> Maybe<String> {
-    let (mut psbt, _) = split_psbt_wrap(options, None, None)?;
-    Pst(psbt).to_signed_hex(signer)
+#[wasm_bindgen(js_name = sendSigned)]
+pub fn send_signed (signer: &Keypair, options: &JsValue) -> Maybe<JsValue> {
+    let (mut psbt, _) = send_from_js(options, None, None)?;
+    Pst(psbt).to_signed(signer)
 }
 
-#[wasm_bindgen(js_name = splitInspect)]
-pub fn split_psbt_unsigned (options: &JsValue) -> Maybe<JsValue> {
-    let mut pst = Pst(split_psbt_wrap(options, None, None)?.0);
-    //if let Some(signer) = signer { pst = Pst(pst.to_signed_impl(&signer)?) }
-    ret_psbt(&pst.0)
+#[wasm_bindgen(js_name = sendInspect)]
+pub fn send_inspect (options: &JsValue) -> Maybe<JsValue> {
+    ret_pst(&send_from_js(options, None, None)?.0)
 }
 
-fn split_psbt_wrap (
+fn send_from_js (
     options: &JsValue, sender: Option<Address>, receiv: Option<Address>,
 ) -> Maybe<Signable> {
     let asset  = get!(options, "asset",  arg_asset_id)?;
@@ -202,10 +200,10 @@ fn split_psbt_wrap (
     let fee    = get!(options, "fee",    arg_sats)?;
     let sender = match sender { Some(s) => s, None => get!(options, "sender",    arg_address)? };
     let receiv = match receiv { Some(r) => r, None => get!(options, "recipient", arg_address)? };
-    split_psbt_impl(asset, &utxos, &sender, &receiv, amount, fee)
+    send_impl(asset, &utxos, &sender, &receiv, amount, fee)
 }
 
-fn split_psbt_impl (
+fn send_impl (
     asset_id:  AssetId,
     utxos_in:  &[(OutPoint, TxOut)],
     sender:    &Address,
@@ -213,9 +211,9 @@ fn split_psbt_impl (
     amount:    u64,
     fee:       u64
 ) -> Maybe<Signable> {
-    let mut total = 0;
     let mut pset = PartiallySignedTransaction::new_v2();
-    let mut utxos  = vec![];
+    let mut utxos = vec![];
+    let mut total = 0;
     for (index, (outpoint, utxo)) in utxos_in.iter().enumerate() {
         if let Some(explicit_asset) = utxo.asset.explicit() {
             if explicit_asset == asset_id {
@@ -269,48 +267,58 @@ pub fn pst (arg: Object) -> Maybe<Pst> {
 #[wasm_bindgen] pub struct Pst (PartiallySignedTransaction);
 
 #[wasm_bindgen] impl Pst {
-    /// Show [PartiallySignedTransaction]
-    #[wasm_bindgen(js_name = toPset)] pub fn to_pset (&self) -> Maybe<JsValue> {
-        ret_pset(&self.0)
+    fn tx (&self) -> Maybe<Transaction> {
+        extract_tx(&self.0)
     }
     /// Show inner [Transaction].
     #[wasm_bindgen(js_name = toTx)]
     pub fn to_tx (&self) -> Maybe<Object> {
         ret_tx(&self.tx()?)
     }
+    /// Show [PartiallySignedTransaction]
+    #[wasm_bindgen(js_name = toPset)]
+    pub fn to_pset (&self) -> Maybe<JsValue> {
+        ret_pst(&self.0)
+    }
     /// Simplified sign procedure.
     #[wasm_bindgen(js_name = toSigned)]
     pub fn to_signed (&self, keypair: &Keypair) -> Maybe<JsValue> {
-        ret_pset(&self.to_signed_impl(keypair)?)
+        let signed = sign(&self, keypair)?;
+        let result = ret_pst(&signed.0)?;
+        set!(result, "signedHex", JsValue::from(pset_to_hex(&signed.0)?));
+        Ok(result)
     }
-    /// Simplest sign procedure. returning the TX bytes directly.
-    #[wasm_bindgen(js_name = toSignedHex)]
-    pub fn to_signed_hex (&self, keypair: &Keypair) -> Maybe<String> {
-        pset_to_hex(&self.to_signed_impl(keypair)?)
+}
+
+/// Return a clone of `pst` with signatures by `signer` added to [Input::final_script_witness].
+///
+/// Currently a simplified version of the signing flow from
+/// https://github.com/Blockstream/lwk/blob/master/lwk_signer/src/software.rs
+///
+/// TODO: Use https://github.com/Blockstream/lwk/blob/master/lwk_signer/src/lib.rs#L40
+/// to allow for signing with external wallets.
+#[wasm_bindgen] pub fn sign (pst: &Pst, signer: &Keypair) -> Maybe<Pst> {
+    let mut pset = pst.0.clone();
+    let tx = extract_tx(&pset)?;
+    let mut sighash_cache = SighashCache::new(&tx);
+    let genesis_hash = BlockHash::all_zeros(); // not used at all for sighash calculation (?)
+    let msgs = pset.inputs().iter().enumerate().map(|(index, _input)|Ok(
+        pset.sighash_msg(index, &mut sighash_cache, None, genesis_hash)?.to_secp_msg()
+    )).collect::<Maybe<Vec<_>>>()?;
+    for (i, input) in pset.inputs_mut().iter_mut().enumerate() {
+        let sig = SECP256K1.sign_ecdsa(&msgs[i], &signer.0.secret_key());
+        let sig = sig.serialize_der();
+        let mut sig = Vec::from(&sig[..]);
+        sig.push(EcdsaSighashType::All as u8);
+        let pubkey = signer.0.public_key().serialize();
+        // https://learnmeabitcoin.com/technical/script/p2wpkh/
+        input.final_script_witness = Some(vec![sig.clone(), pubkey.into()]);
+        debug!("input: {input:#?}");
     }
-    fn to_signed_impl (&self, keypair: &Keypair) -> Maybe<PartiallySignedTransaction> {
-        let mut pset = self.0.clone();
-        let tx = extract_tx(&pset)?;
-        let mut sighash_cache = SighashCache::new(&tx);
-        let genesis_hash = BlockHash::all_zeros(); // not used at all for sighash calculation (?)
-        let msgs = pset.inputs().iter().enumerate().map(|(index, _input)|Ok(
-            pset.sighash_msg(index, &mut sighash_cache, None, genesis_hash)?.to_secp_msg()
-        )).collect::<Maybe<Vec<_>>>()?;
-        for (i, input) in pset.inputs_mut().iter_mut().enumerate() {
-            let sig = SECP256K1.sign_ecdsa(&msgs[i], &keypair.0.secret_key());
-            let sig = sig.serialize_der();
-            let mut sig = Vec::from(&sig[..]);
-            sig.push(EcdsaSighashType::All as u8);
-            let pubkey = keypair.0.public_key().serialize();
-            // https://learnmeabitcoin.com/technical/script/p2wpkh/
-            input.final_script_witness = Some(vec![sig.clone(), pubkey.into()]);
-            debug!("input: {input:#?}");
-        }
-        Ok(pset)
+    for (i, output) in pset.outputs().iter().enumerate() {
+        debug!("output {i}: {output:#?}");
     }
-    fn tx (&self) -> Maybe<Transaction> {
-        extract_tx(&self.0)
-    }
+    Ok(Pst(pset))
 }
 
 fn extract_tx (pset: &PartiallySignedTransaction) -> Maybe<Transaction> {
@@ -319,20 +327,6 @@ fn extract_tx (pset: &PartiallySignedTransaction) -> Maybe<Transaction> {
 
 fn pset_to_hex (pset: &PartiallySignedTransaction) -> Maybe<String> {
     Ok(hex::encode(&extract_tx(&pset)?.serialize()))
-}
-
-/// Create compiler, providing chain constants.
-#[wasm_bindgen] pub fn compiler (options: JsValue) -> Maybe<Compiler> {
-    Ok(Compiler {
-        genesis: Arc::new(
-             BlockHash::from_str(&get!(options, "genesis", arg_string)?)?
-        ),
-        chain: get!(options, "chain", |input|if JsString::is_type_of(&input) {
-            Ok(input.as_string().unwrap())
-        } else {
-            err!("chain not string")
-        })?.into(),
-    })
 }
 
 /// Extract parameter types from SimplicityHL source code.
@@ -357,6 +351,20 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
         try_!("set": Reflect::set(&result, &format!("{k}").into(), &format!("{v}").into()))?;
     }
     Ok(result)
+}
+
+/// Create compiler, providing chain constants.
+#[wasm_bindgen] pub fn compiler (options: JsValue) -> Maybe<Compiler> {
+    Ok(Compiler {
+        genesis: Arc::new(
+             BlockHash::from_str(&get!(options, "genesis", arg_string)?)?
+        ),
+        chain: get!(options, "chain", |input|if JsString::is_type_of(&input) {
+            Ok(input.as_string().unwrap())
+        } else {
+            err!("chain not string")
+        })?.into(),
+    })
 }
 
 /// A SimplicityHL compiler, bound to for a particular chain by address config and genesis block.
@@ -431,26 +439,16 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
         Ok(result)
     }
 
-    /// Partially-signed commit transaction.
-    /// For manual signing.
-    #[wasm_bindgen(js_name = commitPsbt)]
-    pub fn commit_psbt (&self, options: &JsValue) -> Maybe<JsValue> {
-        let (psbt, _) = split_psbt_wrap(options, None, Some(self.p2tr()?))?;
-        match JSON::parse(serde_json::to_string(&psbt)?.as_str()) {
-            Ok(psbt) => Ok(psbt),
-            Err(_)   => err!("failed to deserialize interim commit psbt")
-        }
-    }
-
+    /// Common logic between `redeem_*` methods.
     fn redeem_psbt_utxo (&self, opts: &JsValue) -> Maybe<Signable> {
-        split_psbt_wrap(opts, Some(self.p2tr()?), None)
+        send_from_js(opts, Some(self.p2tr()?), None)
     }
 
     /// Partially-signed redeem transaction without witnesses.
     /// For manual signing.
     #[wasm_bindgen(js_name = redeemPsbt)]
     pub fn redeem_psbt (&self, options: &JsValue) -> Maybe<JsValue> {
-        ret_psbt(&self.redeem_psbt_utxo(options)?.0)
+        ret_pst(&self.redeem_psbt_utxo(options)?.0)
     }
 
     /// SIGHASH_ALL of redeem transaction.
@@ -458,7 +456,8 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
     #[wasm_bindgen(js_name = redeemSighash)]
     pub fn redeem_sighash (&self, options: JsValue) -> Maybe<Uint8Array> {
         let (psbt, utxos) = self.redeem_psbt_utxo(&options)?;
-        ret_psbt_sighash_all(&self.env(&psbt, &utxos)?)
+        let env = &self.env(&psbt, &utxos)?;
+        Ok(ret_u8a(&env.c_tx_env().sighash_all().to_byte_array()))
     }
 
     /// Signed redeem transaction.
@@ -534,13 +533,6 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
         }))
     }
 
-}
-
-fn ret_psbt_sighash_all (env: &Env) -> Maybe<Uint8Array> {
-    let all = env.c_tx_env().sighash_all().to_byte_array();
-    let u8a = Uint8Array::new_with_length(all.len() as u32);
-    u8a.copy_from(&all);
-    Ok(u8a)
 }
 
 /// BIP-0341's NUMS key (magic unspendable key).
@@ -747,13 +739,6 @@ fn ret_u8a (bytes: &[u8]) -> Uint8Array {
     u8a
 }
 
-fn ret_psbt (psbt: &PartiallySignedTransaction) -> Maybe<JsValue> {
-    match JSON::parse(serde_json::to_string(&psbt)?.as_str()) {
-        Ok(psbt) => Ok(psbt),
-        Err(_)   => err!("failed to deserialize interim psbt")
-    }
-}
-
 fn ret_tx (tx: &Transaction) -> Maybe<Object> {
     let bytes = tx.serialize();
     Ok(obj! {
@@ -763,6 +748,9 @@ fn ret_tx (tx: &Transaction) -> Maybe<Object> {
     })
 }
 
-fn ret_pset (tx: &PartiallySignedTransaction) -> Maybe<JsValue> {
-    Ok(JSON::parse(serde_json::to_string(&tx)?.as_str()).expect("parse own tx"))
+fn ret_pst (psbt: &PartiallySignedTransaction) -> Maybe<JsValue> {
+    match JSON::parse(serde_json::to_string(&psbt)?.as_str()) {
+        Ok(psbt) => Ok(psbt),
+        Err(_)   => err!("failed to deserialize interim psbt")
+    }
 }

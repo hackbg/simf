@@ -378,21 +378,6 @@ export class Program {
         wasm.__wbg_program_free(ptr, 0);
     }
     /**
-     * Partially-signed commit transaction.
-     * For manual signing.
-     * @param {any} options
-     * @returns {any}
-     */
-    commitPsbt(options) {
-        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
-        _assertNum(this.__wbg_ptr);
-        const ret = wasm.program_commitPsbt(this.__wbg_ptr, options);
-        if (ret[2]) {
-            throw takeFromExternrefTable0(ret[1]);
-        }
-        return takeFromExternrefTable0(ret[0]);
-    }
-    /**
      * Produce JSON dict of compile-time parameter types.
      * @returns {object}
      */
@@ -498,35 +483,6 @@ export class Pst {
         wasm.__wbg_pst_free(ptr, 0);
     }
     /**
-     * Simplest sign procedure. returning the TX bytes directly.
-     * @param {Keypair} keypair
-     * @returns {string}
-     */
-    toSignedHex(keypair) {
-        let deferred2_0;
-        let deferred2_1;
-        try {
-            if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
-            _assertNum(this.__wbg_ptr);
-            _assertClass(keypair, Keypair);
-            if (keypair.__wbg_ptr === 0) {
-                throw new Error('Attempt to use a moved value');
-            }
-            const ret = wasm.pst_toSignedHex(this.__wbg_ptr, keypair.__wbg_ptr);
-            var ptr1 = ret[0];
-            var len1 = ret[1];
-            if (ret[3]) {
-                ptr1 = 0; len1 = 0;
-                throw takeFromExternrefTable0(ret[2]);
-            }
-            deferred2_0 = ptr1;
-            deferred2_1 = len1;
-            return getStringFromWasm0(ptr1, len1);
-        } finally {
-            wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
-        }
-    }
-    /**
      * Show inner [Transaction].
      * @returns {object}
      */
@@ -628,8 +584,8 @@ export function pst(arg) {
  * @param {any} options
  * @returns {any}
  */
-export function splitInspect(options) {
-    const ret = wasm.splitInspect(options);
+export function sendInspect(options) {
+    const ret = wasm.sendInspect(options);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -639,29 +595,46 @@ export function splitInspect(options) {
 /**
  * @param {Keypair} signer
  * @param {any} options
- * @returns {string}
+ * @returns {any}
  */
-export function splitSigned(signer, options) {
-    let deferred2_0;
-    let deferred2_1;
-    try {
-        _assertClass(signer, Keypair);
-        if (signer.__wbg_ptr === 0) {
-            throw new Error('Attempt to use a moved value');
-        }
-        const ret = wasm.splitSigned(signer.__wbg_ptr, options);
-        var ptr1 = ret[0];
-        var len1 = ret[1];
-        if (ret[3]) {
-            ptr1 = 0; len1 = 0;
-            throw takeFromExternrefTable0(ret[2]);
-        }
-        deferred2_0 = ptr1;
-        deferred2_1 = len1;
-        return getStringFromWasm0(ptr1, len1);
-    } finally {
-        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+export function sendSigned(signer, options) {
+    _assertClass(signer, Keypair);
+    if (signer.__wbg_ptr === 0) {
+        throw new Error('Attempt to use a moved value');
     }
+    const ret = wasm.sendSigned(signer.__wbg_ptr, options);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Return a clone of `pst` with signatures by `signer` added to [Input::final_script_witness].
+ *
+ * Currently a simplified version of the signing flow from
+ * https://github.com/Blockstream/lwk/blob/master/lwk_signer/src/software.rs
+ *
+ * TODO: Use https://github.com/Blockstream/lwk/blob/master/lwk_signer/src/lib.rs#L40
+ * to allow for signing with external wallets.
+ * @param {Pst} pst
+ * @param {Keypair} signer
+ * @returns {Pst}
+ */
+export function sign(pst, signer) {
+    _assertClass(pst, Pst);
+    if (pst.__wbg_ptr === 0) {
+        throw new Error('Attempt to use a moved value');
+    }
+    _assertClass(signer, Keypair);
+    if (signer.__wbg_ptr === 0) {
+        throw new Error('Attempt to use a moved value');
+    }
+    const ret = wasm.sign(pst.__wbg_ptr, signer.__wbg_ptr);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return Pst.__wrap(ret[0]);
 }
 
 /**

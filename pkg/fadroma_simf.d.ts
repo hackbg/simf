@@ -46,11 +46,6 @@ export class Program {
   free(): void;
   [Symbol.dispose](): void;
   /**
-   * Partially-signed commit transaction.
-   * For manual signing.
-   */
-  commitPsbt(options: any): any;
-  /**
    * Produce JSON dict of compile-time parameter types.
    */
   paramTypes(): object;
@@ -84,10 +79,6 @@ export class Pst {
   free(): void;
   [Symbol.dispose](): void;
   /**
-   * Simplest sign procedure. returning the TX bytes directly.
-   */
-  toSignedHex(keypair: Keypair): string;
-  /**
    * Show inner [Transaction].
    */
   toTx(): object;
@@ -118,9 +109,20 @@ export function paramTypes(source: string): object;
 
 export function pst(arg: object): Pst;
 
-export function splitInspect(options: any): any;
+export function sendInspect(options: any): any;
 
-export function splitSigned(signer: Keypair, options: any): string;
+export function sendSigned(signer: Keypair, options: any): any;
+
+/**
+ * Return a clone of `pst` with signatures by `signer` added to [Input::final_script_witness].
+ *
+ * Currently a simplified version of the signing flow from
+ * https://github.com/Blockstream/lwk/blob/master/lwk_signer/src/software.rs
+ *
+ * TODO: Use https://github.com/Blockstream/lwk/blob/master/lwk_signer/src/lib.rs#L40
+ * to allow for signing with external wallets.
+ */
+export function sign(pst: Pst, signer: Keypair): Pst;
 
 /**
  * Extract witness types from SimplicityHL source code.
@@ -143,7 +145,6 @@ export interface InitOutput {
   readonly keypair_signSchnorr: (a: number, b: any) => any;
   readonly keypair_xOnlyPublicKey: (a: number) => any;
   readonly paramTypes: (a: any) => [number, number, number];
-  readonly program_commitPsbt: (a: number, b: any) => [number, number, number];
   readonly program_paramTypes: (a: number) => [number, number, number];
   readonly program_redeemPsbt: (a: number, b: any) => [number, number, number];
   readonly program_redeemSighash: (a: number, b: any) => [number, number, number];
@@ -153,10 +154,10 @@ export interface InitOutput {
   readonly pst: (a: any) => [number, number, number];
   readonly pst_toPset: (a: number) => [number, number, number];
   readonly pst_toSigned: (a: number, b: number) => [number, number, number];
-  readonly pst_toSignedHex: (a: number, b: number) => [number, number, number, number];
   readonly pst_toTx: (a: number) => [number, number, number];
-  readonly splitInspect: (a: any) => [number, number, number];
-  readonly splitSigned: (a: number, b: any) => [number, number, number, number];
+  readonly sendInspect: (a: any) => [number, number, number];
+  readonly sendSigned: (a: number, b: any) => [number, number, number];
+  readonly sign: (a: number, b: number) => [number, number, number];
   readonly witnessTypes: (a: any) => [number, number, number];
   readonly rust_0_6_malloc: (a: number) => number;
   readonly rust_0_6_free: (a: number) => void;
