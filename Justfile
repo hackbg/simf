@@ -93,7 +93,7 @@ build-wasm-release:
 
 # Open WASM build shell to iterate on WASM modules in container.
 build-sh:
-  ${TTY_WASM}
+  ${TTY_WASM} bash
 
 # Show imports and exports of built module
 build-inspect:
@@ -109,7 +109,7 @@ TTY_TEST := TTY + VOL_TEST + IMG_TEST
 # Open test shell to iterate on WASM module wrapper in container.
 test-sh:
   @just test-img
-  ${TTY_TEST}
+  ${TTY_TEST} bash
 
 # Run tests in container.
 test:
