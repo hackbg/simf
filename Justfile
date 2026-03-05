@@ -22,6 +22,11 @@ WASM_PKG := "rm -v pkg/package.json pkg/.gitignore pkg/README.md"
 
 # Rebuild in debug mode and test
 iterate:
+  just build
+  just test
+
+# Rebuild in verbose debug mode and test
+debug:
   just build-debug
   just test
 
@@ -70,6 +75,11 @@ bacon:
   ${TTY_WASM} "bacon -s"
 
 # Compile dev build of WASM module in container.
+build:
+  @just build-img
+  ${RUN_WASM} "just build-wasm"
+
+# Compile dev build of WASM module in container.
 build-debug:
   @just build-img
   ${RUN_WASM} "just build-wasm-debug"
@@ -80,6 +90,12 @@ build-release:
   ${RUN_WASM} "just build-wasm-release"
 
 # Build in dev mode (with stack trace)
+build-wasm:
+  ${WASM_PACK} --debug --no-opt .
+  ${WASM_PKG}
+  @just build-inspect
+
+# Build in dev mode (with stack trace and extra debug printing)
 build-wasm-debug:
   ${WASM_PACK} --debug --no-opt . -F debug
   ${WASM_PKG}
