@@ -260,6 +260,7 @@ by the following projects:
 
 * (**`EL:`**) [**elements**](https://github.com/ElementsProject/elements/blob/master/LICENSE)
 * (**`EM:`**) [**elements-miniscript**](https://github.com/ElementsProject/elements-miniscript/blob/master/LICENSE)
+* (**`LW:`**) [**lwk**](https://github.com/Blockstream/lwk/blob/master/LICENSE)
 * (**`SC:`**) [**simplicityhl-core** (MIT/Apache: Riabov et al., Blockstream)](https://github.com/BlockstreamResearch/simplicity-contracts/)
 * (**`SL:`**) [**simplicity-lang** (CC0: Poelstra et al., Blockstream)](https://github.com/BlockstreamResearch/rust-simplicity/)
 * (**`SW:`**) [**simplicity-webide** (CC0: Lewe et al., Blockstream)](https://github.com/BlockstreamResearch/simplicity-webide)
