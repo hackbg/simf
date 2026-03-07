@@ -1,10 +1,9 @@
 #!/usr/bin/env -S deno run --allow-read --allow-env --allow-run --allow-write=/tmp/fadroma --allow-import=cdn.skypack.dev:443,deno.land:443 --allow-net=127.0.0.1:8941,liquidtestnet.com:443,blockstream.info:443
 import { deepStrictEqual as equal, rejects, throws, ok } from 'node:assert';
 import { Base16, Fn, Test, Run, sleep } from '../../../library/index.ts';
-import { pubECDSA } from 'npm:@scure/btc-signer/utils.js';
-import Btc, { BtcRpc, Esplora, LiquidTestnet, ElementsRegtest } from '../../Bitcoin/index.ts';
+import Btc, { BtcRpc, LiquidTestnet, ElementsRegtest } from '../../Bitcoin/index.ts';
 import { SendFromWallet, AssertBalance } from '../../Bitcoin/test.ts';
-import { Signer, Keypair, Program, Wasm, Arg, Args } from './sdk.ts';
+import { Signer, Program, Wasm, Arg, Args } from './sdk.ts';
 const { is, has } = Test;
 const { CreateWallet, Rescan } = BtcRpc;
 const { INITIAL_COINS, BITCOIN } = ElementsRegtest;
@@ -48,7 +47,7 @@ export function TestOnLocalnet () {
   const BALANCE_INITIAL = { [ElementsRegtest.ASSETS.REISSUE]: 1, bitcoin: Number(INITIAL_COINS / BITCOIN) };
   // Tests that run on temporary localnet:
   return Test('elementsregtest',
-    () => ElementsRegtest({ debugs: true, debugexclude: ['libevent'] }),
+    () => ElementsRegtest({ debugs: false, debugexclude: ['libevent'] }),
     Run.Verbose(true), // Pipe the localnet's output to stderr
     CreateWallet('test-simf', AssertBalance(BALANCE_EMPTY)),
     Rescan(AssertBalance(BALANCE_INITIAL)),
@@ -105,12 +104,6 @@ export function TestOnLocalnet () {
 }
 
 interface TestSend extends Btc {
-  /** Chain-specific asset IDs. */
-  ASSETS:      { [key: string]: unknown },
-  /** Input transaction. */
-  tx:          unknown
-  /** To provide funds on testnet. */
-  callFaucet?: Fn.Returns<Fn.Async<{ txid: string }>>,
   /** Creates a P2WPKH address configured for the given network. */
   P2WPKH:      Fn<[Uint8Array], { address: string }>,
   /** P2WPKH address that is sending funds. */
@@ -119,30 +112,67 @@ interface TestSend extends Btc {
   recipient:   string
 }
 
-function TestSend (signer1 = null, signer2 = null, amount = 3000n, fee = 12000n) {
+function TestSend (amount = 3000n, fee = 12000n) {
   const keypair1 = keypair(new Uint8Array(Array(32).fill(8)));
   const keypair2 = keypair(new Uint8Array(Array(32).fill(9)));
-  return Fn.Name('Test sendSigned', testSend);
-  async function testSend ({ debug = console.debug, ...context }: TestSend) {
-    const { rpc, rest, esplora, callFaucet, tx: inputTx, ASSETS, P2WPKH } = context;
-    const sender    = P2WPKH(keypair1.publicKey()).address;
+  return Fn.Name(`Test sendSigned ${amount} for ${fee}`, testSend);
+  async function testSend (context: TestSend) {
+    const { debug = console.debug, rpc, rest, esplora, P2WPKH } = context;
+    const sender = P2WPKH(keypair1.publicKey()).address;
     const recipient = P2WPKH(keypair2.publicKey()).address;
-    debug(`Send ${amount} from ${sender} to ${recipient} at ${fee}`);
-    const unspent   = await rpc.listunspent(0, 9999999, [sender]); // TODO filter
-    const utxo      = unspent[0]; // { asset, txid, vout, value, address }
+    const utxo = await findUtxo(sender);
     debug('Input:', utxo);
-    const options   = { sender, recipient, asset: utxo.asset, amount, fee, utxos: [utxo] };
-    const signed    = sendSigned(keypair1, options);
-    debug('Signed:', signed);
-    try {
-      const id = await rpc!.sendrawtransaction(signed.hex);
-      const tx = await rest!.tx(id);
-      await rpc!.rescanblockchain();
-    } catch (e) {
-      await sleep(1000);
-      throw e
+    const options = { recipient, sender, utxos: [utxo], asset: utxo.asset, amount, fee };
+    const signed = sendSigned(keypair1, options);
+    const tx = await sendSignedTransaction(signed.hex);
+    debug('Spent:', tx);
+    return Object.assign(context, tx);
+
+    async function sendSignedTransaction (hex: string) {
+      debug('Broadcasting signed transaction:', signed);
+      if (rpc && rest) {
+        const id = await rpc!.sendrawtransaction(hex);
+        await rpc!.rescanblockchain();
+        const tx = await rest!.tx(id);
+        return tx;
+      } else if (esplora) {
+        const id = await esplora.postTx(hex);
+        while (true) {
+          const mempool = await esplora.getMempoolTxids().then(JSON.parse);
+          if (mempool.includes(id)) {
+            debug('TX still in mempool:', id);
+            await sleep(1000);
+          } else {
+            return esplora.getTxInfo(id);
+          }
+        }
+      } else {
+        throw new Error('need { rpc, rest } or { esplora } to broadcast signed transaction');
+      }
+    }
+
+    async function findUtxo (address: string): { asset, txid, vout, amount, address } {
+      if (rpc) {
+        const unspent = await rpc.listunspent(0, 9999999, [sender]); // TODO filter
+        if (!unspent[0]) throw new Error(`no UTXOs for ${sender}`);
+        const { txid, vout, amount, asset } = unspent[0];
+        return { asset, txid, vout, address, amount };
+      } else if (esplora) {
+        const unspent = await esplora.getAddressUtxos(sender);
+        if (!unspent[0]) throw new Error(`no UTXOs for ${sender}`)
+        const { txid, vout, value, asset } = unspent[0];
+        return { asset, txid, vout, address, amount: BigInt(value) };
+      } else {
+        throw new Error('need { rpc } or { esplora } to find unspent output');
+      }
     }
   }
+}
+
+interface TestProgram extends Pick<Btc, 'rpc'|'rest'|'esplora'> {
+  ID,
+  ASSETS,
+  P2WPKH,
 }
 
 /** Define example program. */
@@ -249,27 +279,3 @@ function assertTxOuts (
     return x.value === cost;
   }
 }
-
-    //debug(`UTXOS of sender (${sender}):`, unspent)
-    //process.exit(123);
-    //// If no input TX is passed, but a faucet is available, use that.
-    //if (!inputTx) {
-      //// TODO: try using pre-existing UTXO of test account:
-      //// const utxos = await esplora.getAddressUtxos(addr);
-      //if (callFaucet) {
-        //const { txid } = await callFaucet(sender);
-        //if (txid === null) throw new Error(`faucet call failed: ${sender}`);
-        //await sleep(15000); // give it a few
-        //inputTx = await esplora!.getTxInfo(txid);
-      //} else {
-        //throw new Error(`required: inputTx, callFaucet, or utxo: ${sender}`)
-      //}
-    //}
-    //debug('Previous:', inputTx);
-    //// Find the unspent transaction outpu (support both REST and Esplora schemas)
-    //const voutIndex = (x: Btc.Vout|Esplora.Vout) => x?.n ?? x?.vout;
-    //const enumerate = <T>(x: T, index: number): [number, T] => [index, x];
-    //const isOwnedBy = (sender: string) => ([_, x]) => toAddress(x) === sender;
-    //const toAddress = (x: Btc.Vout|Esplora.Vout) => x?.scriptPubKey?.address ?? x?.scriptpubkey_address;
-    //const [i, vout] = inputTx.vout.map(enumerate).filter(isOwnedBy(sender))[0];
-    //if (!vout) throw new Error('no vout matched in previous tx');

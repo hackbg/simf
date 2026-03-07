@@ -1,4 +1,4 @@
-import type Bitcoin    from '../../Bitcoin/Bitcoin.ts';
+import type Bitcoin    from '../../Bitcoin/index.ts';
 import Fn              from '../../../library/Fn.ts';
 import { Log }         from '../../../library/Log.ts';
 import { Num, Base16 } from '../../../library/Number.ts';
@@ -65,7 +65,7 @@ export async function Wasm ({
 }
 
 /** Load [Wasm] with default settings and create a [WasmKeypair]. */
-export async function Keypair (secret: Uint8Array): Promise<Keypair> {
+export async function Keypair (secret: Uint8Array) {
   const { keypair } = await Wasm();
   return keypair(secret)
 }
@@ -143,7 +143,9 @@ export async function Program (source: string, {
 }
 
 /** Format a `{ type, value }` pair as used to pass `param` and `witness` values. */
-export function Arg (type: string, value?: unknown) { return { type, value } }
+export function Arg (type: string, value?: unknown) {
+  return { type, value }
+}
 
 /** SimplicityHL program argument constructors.
   *

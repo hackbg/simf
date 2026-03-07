@@ -15,7 +15,7 @@ RUN apt update && apt install -yy curl just git
 ARG ELEMENTS="https://github.com/ElementsProject/elements/releases/download/elements-23.3.1/elements-23.3.1-x86_64-linux-gnu.tar.gz"
 RUN cd /usr/local && curl -Lf "${ELEMENTS}" | tar --strip-components=1 -xz
 # This draws the rest of the owl.
-ARG FADROMA_REF="b64fd93"
+ARG FADROMA_REF="f460a1157f"
 ARG FADROMA_URL="https://github.com/hackbg/fadroma"
 RUN git clone --progress -b v3-alpha "${FADROMA_URL}" /fadroma && cd /fadroma && git checkout "${FADROMA_REF}"
 WORKDIR /fadroma

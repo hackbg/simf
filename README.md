@@ -259,7 +259,8 @@ The tests run on an automatically managed ephemeral Elements localnet in `elemen
 * `bad-txns-in-ne-out` when inputs/outputs do seem to add up
   * -> `VerifyAmounts` in Elements `confidential_validation.cpp`  -> oh my...
   * Use `rpc.listunspent(0, 9999999, [sender])` to get a valid UTXO
-* `min-relay-fee` -> ?
+  * Make sure not to mess up the decimals. **Pass satoshis as String and BigInt, Bitcoins as Number**
+* `min-relay-fee` -> ? the fee output is misconfigured
 
 ## Acknowledgments, References, Attribution
 
