@@ -46,4 +46,4 @@ jobs:
           docker run --rm \
             -v "$PWD:/fadroma/platform/SimplicityHL:rw" \
             hackbg/fadroma-simplicity:test \
-            "cd platform/SimplicityHL/ && ./SimplicityHL.test.ts"
+            "cd platform/SimplicityHL/ && src/test.ts"
