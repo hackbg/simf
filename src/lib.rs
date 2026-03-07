@@ -360,14 +360,8 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
 /// Create compiler, providing chain constants.
 #[wasm_bindgen] pub fn compiler (options: JsValue) -> Maybe<Compiler> {
     Ok(Compiler {
-        genesis: Arc::new(
-             BlockHash::from_str(&get!(options, "genesis", arg_string)?)?
-        ),
-        chain: get!(options, "chain", |input|if JsString::is_type_of(&input) {
-            Ok(input.as_string().unwrap())
-        } else {
-            err!("chain not string")
-        })?.into(),
+        genesis: get!(options, "genesis", arg_block_hash)?.into(),
+        chain:   get!(options, "chain", arg_chain)?.into(),
     })
 }
 
@@ -533,7 +527,7 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
         Ok(Address::p2tr(SECP256K1, key, root, None, match self.chain.as_ref() {
             "liquidtestnet"   => &AddressParams::LIQUID_TESTNET,
             "elementsregtest" => &AddressParams::ELEMENTS,
-            _ => return err!("invalid chain: {}; try elementsregtest, liqudtestnet", &self.chain)
+            _ => return err!("unsupported chain: {}; try elementsregtest, liqudtestnet", &self.chain)
         }))
     }
 
@@ -640,11 +634,19 @@ fn arg_pset_outs (array: JsValue) -> Maybe<Vec<Output>> {
     Ok(outputs)
 }
 
-fn arg_string (input: JsValue) -> Maybe<String> {
+fn arg_block_hash (input: JsValue) -> Maybe<BlockHash> {
     if JsString::is_type_of(&input) {
-        required!("decode input": input.as_string())
+        Ok(BlockHash::from_str(&required!("decode genesis": input.as_string())?)?)
     } else {
-        err!("invalid chain: {input:?}; try elementsregtest, liqudtestnet")
+        err!("invalid block hash: {input:?}")
+    }
+}
+
+fn arg_chain (input: JsValue) -> Maybe<String> {
+    if JsString::is_type_of(&input) {
+        required!("decode chain": input.as_string())
+    } else {
+        err!("invalid chain: {input:?}, try liquidtestnet, elementsregtest")
     }
 }
 
