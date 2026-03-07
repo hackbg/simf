@@ -70,6 +70,15 @@ export async function Keypair (secret: Uint8Array): Promise<Keypair> {
   return keypair(secret)
 }
 
+/** Wrap a [Keypair] as a Signer. */
+export async function Signer (secret: Uint8Array) {
+  const { pubECDSA } = await import('npm:@scure/btc-signer/utils.js');
+  return {
+    keypair:  await Keypair(secret), 
+    pubEcdsa: pubECDSA(secret),
+  }
+}
+
 /** Load [Wasm] with default settings and create a [Compiler]. */
 export async function Compiler (...args: Parameters<Wasm['compiler']>) {
   const { compiler } = await Wasm();

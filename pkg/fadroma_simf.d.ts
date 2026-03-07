@@ -53,7 +53,7 @@ export class Program {
    * Partially-signed redeem transaction without witnesses.
    * For manual signing.
    */
-  redeemPsbt(options: any): any;
+  redeemPsbt(options: any): object;
   /**
    * Produce JSON dict of run-time parameter types.
    */
@@ -85,11 +85,11 @@ export class Pst {
   /**
    * Show [PartiallySignedTransaction]
    */
-  toPset(): any;
+  toPset(): object;
   /**
    * Simplified sign procedure.
    */
-  toSigned(keypair: Keypair): any;
+  toSigned(keypair: Keypair): object;
 }
 
 /**
@@ -109,9 +109,9 @@ export function paramTypes(source: string): object;
 
 export function pst(arg: object): Pst;
 
-export function sendSigned(signer: Keypair, options: any): any;
+export function sendSigned(signer: Keypair, options: any): object;
 
-export function sendUnsigned(options: any): any;
+export function sendUnsigned(options: any): object;
 
 export function sendUnsignedTx(options: any): object;
 

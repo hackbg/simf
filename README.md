@@ -253,6 +253,14 @@ The tests run on an automatically managed ephemeral Elements localnet in `elemen
 >The image clones a pinned commit of Fadroma when built;
 >this repo's tests then run in a subdirectory of that.
 
+### Troubleshooting
+
+* `Jet failed` from sanity check (PR#...)
+* `bad-txns-in-ne-out` when inputs/outputs do seem to add up
+  * -> `VerifyAmounts` in Elements `confidential_validation.cpp`  -> oh my...
+  * Use `rpc.listunspent(0, 9999999, [sender])` to get a valid UTXO
+* `min-relay-fee` -> ?
+
 ## Acknowledgments, References, Attribution
 
 This project applies techniques pioneered, described, or otherwise demonstrated

@@ -2,27 +2,22 @@
 import { deepStrictEqual as equal, rejects, throws, ok } from 'node:assert';
 import { Base16, Fn, Test, Run, sleep } from '../../../library/index.ts';
 import { pubECDSA } from 'npm:@scure/btc-signer/utils.js';
-import { p2wpkh } from 'npm:@scure/btc-signer';
-import Btc, { BtcRpc, Esplora, LiquidTestnet, ElementsRegtest, BITCOIN } from '../../Bitcoin/Bitcoin.ts';
-import * as BtcTest from '../../Bitcoin/Bitcoin.test.ts';
-import { Keypair, Program, Wasm, Arg, Args } from './sdk.ts';
+import Btc, { BtcRpc, Esplora, LiquidTestnet, ElementsRegtest } from '../../Bitcoin/index.ts';
+import { SendFromWallet, AssertBalance } from '../../Bitcoin/test.ts';
+import { Signer, Keypair, Program, Wasm, Arg, Args } from './sdk.ts';
 const { is, has } = Test;
-const { INITIAL_COINS } = ElementsRegtest;
-/** Non-private key. */
-const SECRET = new Uint8Array(Array(32).fill(1));
-/** WASM-backed Secp256k1 keypair for Schnorr signing. */
-const KEYPAIR = await Keypair(SECRET);
-/** Public key for ECDSA (transactions). */
-const PUB_ECDSA = pubECDSA(SECRET);
-/** When starting the localnet, the genesis balance is not indexed. */
-const BALANCE_EMPTY = { bitcoin: 0 };
-/** After RPC rescanblockchain, it shoud look like this. */
-const BALANCE_INITIAL = { [ElementsRegtest.ASSETS.REISSUE]: 1, bitcoin: Number(INITIAL_COINS / BITCOIN) };
-/** Test the SimplicityHL support in Fadroma. */
-export default Test(import.meta, 'SimplicityHL',
+const { CreateWallet, Rescan } = BtcRpc;
+const { INITIAL_COINS, BITCOIN } = ElementsRegtest;
+const { sendSigned, keypair } = await Wasm();
 
-  // Check that the API entrypoints are present on the WASM module:
-  Test('WASM', () => Wasm(),
+const SIGNER = await Signer(new Uint8Array(Array(32).fill(1)));
+
+/** Test the SimplicityHL support in Fadroma. */
+export default Test(import.meta, 'SimplicityHL', TestWasm(), TestOnLocalnet(), TestOnTestnet())
+
+// Check that the API entrypoints are present on the WASM module:
+export function TestWasm() {
+  return Test('WASM', () => Wasm(),
     has('paramTypes',     is('function')),
     has('witnessTypes',   is('function')),
     has('compiler',       is('function')),
@@ -33,38 +28,49 @@ export default Test(import.meta, 'SimplicityHL',
     has('sendSigned',     is('function'), (sendSigned: Fn) => {
       throws(()=>sendSigned());
       throws(()=>sendSigned({}));
-      throws(()=>sendSigned(KEYPAIR));
-      throws(()=>sendSigned(KEYPAIR, {}));
-    })),
+      throws(()=>sendSigned(SIGNER.keypair));
+      throws(()=>sendSigned(SIGNER.keypair, {}));
+    }));
+}
 
+export function TestOnTestnet () {
+  // Tests that touch Liquid Testnet using Esplora
+  return Test('liquidtestnet', () => LiquidTestnet(),
+    TestSend(), // Test the basic transaction primitive
+    'Programs'  // TODO: Separate fixtures to reuse P2TR source/type defs
+  );
+}
+
+export function TestOnLocalnet () {
+  /** When starting the localnet, the genesis balance is not indexed. */
+  const BALANCE_EMPTY = { bitcoin: 0 };
+  /** After RPC rescanblockchain, it shoud look like this. */
+  const BALANCE_INITIAL = { [ElementsRegtest.ASSETS.REISSUE]: 1, bitcoin: Number(INITIAL_COINS / BITCOIN) };
   // Tests that run on temporary localnet:
-  Test('elementsregtest', () => ElementsRegtest(),
+  return Test('elementsregtest',
+    () => ElementsRegtest({ debugs: true, debugexclude: ['libevent'] }),
     Run.Verbose(true), // Pipe the localnet's output to stderr
-    BtcRpc.CreateWallet('test-simf', BtcTest.AssertBalance(BALANCE_EMPTY)),
-    BtcRpc.Rescan(BtcTest.AssertBalance(BALANCE_INITIAL)),
-    BtcTest.Send("100000", 8), // Fund deployer (non-secret key 8) from genesis wallet
-    await TestSend(), // Test the basic transaction primitive (WASM init here is async)
+    CreateWallet('test-simf', AssertBalance(BALANCE_EMPTY)),
+    Rescan(AssertBalance(BALANCE_INITIAL)),
+    SendFromWallet("100000", 8), // Fund deployer (non-secret key 8) from genesis wallet
+    TestSend(), // Test the basic transaction primitive
     Test('Programs', // Test SimplicityHL commitment and redemption transactions.
-
       // Empty program, always passes:
       TestProgram("unit program", 'fn main () {}', {
         p2tr: 'ert1p9jcvyzkdwdqtf49kta4xpc5g35xkfcexwfsl8v70w2gwttelncyspjlnrz',
         cmr: 'c40a10263f7436b4160acbef1c36fba4be4d95df181a968afeab5eac247adff7',
         fee: 2.7e-7 }),
-
       // Correct assertion, always passes:
       TestProgram("assert true", 'fn main () { assert!(true) }', {
         p2tr: 'ert1per0vg2wvc4ua2rsndm8j6062r7z7ys7q6wcvwumepgz8t5m6hfhsrd8d8q',
         cmr: '633f62f67589423aafcd3ce0a4dc41f6192403c4aeb61997f438dbd7b96c5cf7',
         fee: 2.7e-7 }),
-
       // Incorrect assertion, always fails:
       TestProgram("assert false fails", 'fn main () { assert!(false) }', {
         shouldFail: true,
         p2tr: 'ert1p7p4rgaw5dmhxt6qutf2v3rtuy6afghfgktmmedkpju5uamxdz5js3hdug9',
         cmr: 'd3c6b9ecfc2876ec72f0099c6f454b7b34645d08c1f220c05ae80e77eed4bdf3',
         fee: 2.7e-7 }),
-
       // Test basic language features. Guards against general failure of all jets
       // (Symptom of mislinked WASM, see other mentions in README and/or comments.)
       TestProgram("basic jets work", `fn main () {
@@ -76,7 +82,6 @@ export default Test(import.meta, 'SimplicityHL',
         p2tr: 'ert1pmy9edmq0yfrc477jvcc835umyajlgjsnyujplt8nppr45zrwl7qs02gj3x',
         cmr: 'b8b3509f12177723609e3995101ff589e504361ce32ec4d417bba3b37bbb7fac',
         fee: 2.7e-7, }),
-
       // Witness signing:
       TestProgram("pay to pubkey", `fn main () {
         jet::bip_0340_verify((param::PK, jet::sig_all_hash()), witness::SIG)
@@ -85,97 +90,65 @@ export default Test(import.meta, 'SimplicityHL',
         cmr: 'b1b4447ce3082324635798876f1ae6c9aec9a228eb6e21e3cb991f8970986965',
         argTypes: { PK: "u256" },
         witTypes: { SIG: "[u8; 64]" },
-        provideArgs: () => ({ PK: Arg.Pubkey(KEYPAIR.xOnlyPublicKey()) }),
+        provideArgs: () => ({
+          PK: Arg.Pubkey(SIGNER.keypair.xOnlyPublicKey())
+        }),
         provideWits: (sighash: Uint8Array<ArrayBufferLike>) => ({
-          SIG: Arg.Signature(KEYPAIR.signSchnorr(sighash)),
+          SIG: Arg.Signature(SIGNER.keypair.signSchnorr(sighash)),
         }),
         fee: 2.7e-7, })),
-
     // Shutdown the localnet.
     // TODO: wrapper ElementsRegtest(async () => { do things }); then autokilled
-    Run.Kill(9)),
-
-  // Tests that touch Liquid Testnet using Esplora
-  Test('liquidtestnet', () => LiquidTestnet(),
-    await TestSend()));
-
-function testTransactionOutputs (
-  tx: { hex: unknown, vout: unknown[] }, p2tr: string, amount: number, cost: number, remaining?: number
-) {
-  equal(tx.vout.length, 3);
-  console.log({tx});
-  hasVout(isBalance, _ => `balance: program ${p2tr} must receive ${amount}`);
-  hasVout(isFee,     _ => `fee: no deploy fee matching ${cost}`);
-  //hasVout((x: Btc.Vout)=>x.value===remaining, v => `remaining: must be ${v}`);
-  return tx
-  function hasVout (f: Fn, msg: (v)=>string) {
-     if (tx.vout.filter(f).length !== 1) throw new Error(`post deploy: ${msg(tx.vout)}`);
-  }
-  function isBalance (x: Btc.Vout) {
-    return ((x.value===amount) && (x.scriptPubKey.address == p2tr));
-  }
-  function isFee (x: Btc.Vout) {
-    return x.value === cost;
-  }
+    () => sleep(1000),
+    Run.Kill(9)
+  );
 }
 
-async function TestSend ({
-  secret1 = new Uint8Array(Array(32).fill(8)), pubkey1 = pubECDSA(secret1),
-  secret2 = new Uint8Array(Array(32).fill(9)), pubkey2 = pubECDSA(secret2),
-  amount = '3000', fee = '12000',
-} = {}) {
-  const { sendSigned, keypair } = await Wasm();
-  return Fn.Name('Test sendSigned', async ({
-    debug = console.debug,
-    rpc,
-    rest,
-    esplora,
-    callFaucet,
-    tx: inputTx,
-    identity,
-    ASSETS,
-    NETWORK,
-    P2WPKH,
-    sender    = P2WPKH(pubkey1, NETWORK).address,
-    recipient = P2WPKH(pubkey2, NETWORK).address,
-  }: Btc) => {
-    // If no input TX is passed, but a faucet is available, use that.
-    if (!inputTx) {
-      // TODO: try with pre-existing balance:
-      // const utxos = await esplora.getAddressUtxos(addr);
-      if (callFaucet) {
-        const { txid } = await callFaucet(sender);
-        if (txid === null) throw new Error(`faucet call failed: ${sender}`);
-        await sleep(15000); // give it a few
-        inputTx = await esplora.getTxInfo(txid);
-      } else {
-        throw new Error(`required: inputTx, callFaucet, or utxo: ${sender}`)
-      }
+interface TestSend extends Btc {
+  /** Chain-specific asset IDs. */
+  ASSETS:      { [key: string]: unknown },
+  /** Input transaction. */
+  tx:          unknown
+  /** To provide funds on testnet. */
+  callFaucet?: Fn.Returns<Fn.Async<{ txid: string }>>,
+  /** Creates a P2WPKH address configured for the given network. */
+  P2WPKH:      Fn<[Uint8Array], { address: string }>,
+  /** P2WPKH address that is sending funds. */
+  sender:      string
+  /** P2WPKH address that is receiving funds. */
+  recipient:   string
+}
+
+function TestSend (signer1 = null, signer2 = null, amount = 3000n, fee = 12000n) {
+  const keypair1 = keypair(new Uint8Array(Array(32).fill(8)));
+  const keypair2 = keypair(new Uint8Array(Array(32).fill(9)));
+  return Fn.Name('Test sendSigned', testSend);
+  async function testSend ({ debug = console.debug, ...context }: TestSend) {
+    const { rpc, rest, esplora, callFaucet, tx: inputTx, ASSETS, P2WPKH } = context;
+    const sender    = P2WPKH(keypair1.publicKey()).address;
+    const recipient = P2WPKH(keypair2.publicKey()).address;
+    debug(`Send ${amount} from ${sender} to ${recipient} at ${fee}`);
+    const unspent   = await rpc.listunspent(0, 9999999, [sender]); // TODO filter
+    const utxo      = unspent[0]; // { asset, txid, vout, value, address }
+    debug('Input:', utxo);
+    const options   = { sender, recipient, asset: utxo.asset, amount, fee, utxos: [utxo] };
+    const signed    = sendSigned(keypair1, options);
+    debug('Signed:', signed);
+    try {
+      const id = await rpc!.sendrawtransaction(signed.hex);
+      const tx = await rest!.tx(id);
+      await rpc!.rescanblockchain();
+    } catch (e) {
+      await sleep(1000);
+      throw e
     }
-    // Support both REST and Esplora API formats.
-    const spka = (x: Btc.Vout|Esplora.Vout) => x?.scriptPubKey?.address ?? x?.scriptpubkey_address;
-    const voutIndex = (x: Btc.Vout|Esplora.Vout) => x?.n ?? x?.vout;
-    // Find the unspent transaction output
-    const enumerate = <T>(x: T, index: number): [number, T] => [index, x];
-    const isOwnedBySender = (x: Btc.Vout|Esplora.Vout) => spka(x) === sender;
-    const [index, vout] = inputTx.vout.map(enumerate).filter(([_, x])=>isOwnedBySender(x))[0];
-    if (!vout) throw new Error('no vout matched in previous tx');
-    console.log({vout});
-    // TX2: Fund recipient from sender.
-    const asset = ASSETS.DEFAULT;
-    const value = String(vout.value);
-    const utxos = [{asset, txid: inputTx.txid, vout: index, value, recipient: spka(vout),}]
-    const signed = sendSigned(keypair(secret1), { sender, recipient, asset, amount, fee, utxos, });
-    console.debug('Signed:', signed);
-    const id = await rpc!.sendrawtransaction(signed.signedHex);
-    const tx = await rest!.tx(id);
-    await rpc!.rescanblockchain();
-  })
+  }
 }
 
 /** Define example program. */
 function TestProgram (name: string, src: string, {
-  shouldFail = false as boolean,
+  /** Program runs that should fail. */
+  shouldFail  = false as boolean,
   /** Expected deploy fee. */
   fee         = null as null|number,
   /** Expected commitment Merkle root of program. */
@@ -190,32 +163,45 @@ function TestProgram (name: string, src: string, {
   provideWits = null as null|Fn<[Uint8Array<ArrayBufferLike>], Fn.Async<object>>,
 } = {}) {
   const cost = fee;
-  return Fn.Name(`${name} (${p2tr||'unspecified P2TR'})`, testExample, {
+  return Fn.Name(`${name} (${p2tr||'unspecified P2TR'})`, testProgram, {
     shouldFail, name, src, cost, cmr, p2tr, argTypes, witTypes, provideArgs, provideWits,
   });
-  async function testExample ({ rpc, rest, ID, ASSETS, P2WPKH }: Btc) {
-    // Compile the program.
+  async function testProgram ({ rpc, rest, ID, ASSETS, P2WPKH }: Btc) {
+    // Need chain's genesis hash to compile for the chain.
     const genesis = await rpc.getblockhash(0);
-    const opts = { genesis, chain: ID, args: provideArgs ? await provideArgs() : undefined };
-    const prog = await Program(src, opts);
-    // Check against expected program address.
-    // (Only possible for programs  without params.)
+
+    // Parameter values are specified by the test case.
+    // It's a function so they can be made context-dependent,
+    // but for now they are constant.
+    const args = provideArgs ? await provideArgs() : undefined;
+
+    // Ok, compile this program for this chain with these arguments.
+    const prog = await Program(src, { chain: ID, genesis, args });
+
+    // Check against expected program address, if provided.
     if (p2tr) equal(prog.p2tr, p2tr);
+
     // Fund program from deployer:
+    // TODO: Use sendSigned
     const id = await rpc.sendtoaddress(p2tr, String(1));
+
     // Create local spender wallet and import it to RPC:
-    const recipient = P2WPKH(PUB_ECDSA).address;
+    const recipient = P2WPKH(SIGNER.pubEcdsa).address;
     await rpc.importaddress(recipient);
+
     // Note current balance:
     await rpc.rescanblockchain();
     const balance = ((await rpc.getreceivedbyaddress(recipient, 0)) as { bitcoin: number }).bitcoin;
+
     // Find commit (deploy) output = redeem (spend) input:
     const asset = ASSETS.DEFAULT;
-    const prev = testTransactionOutputs(await rest.tx(id), p2tr, 1, cost);
+    const prev = await rest.tx(id);
+    assertTxOuts(prev, p2tr, 1, cost);
     const txid = prev.txid;
     const vout = prev.vout.filter(x=>x.scriptPubKey.address === p2tr)[0];
     if (!vout) throw new Error('no corresponding vout found');
-    const utxos = [{ txid, asset, vout: vout.n, recipient: vout.scriptPubKey.address, value: vout.value }];
+    const utxos = [{ txid, asset, vout: vout.n, address: vout.scriptPubKey.address, amount: vout.value }];
+
     // To get SIGHASH_ALL for signing, first the rest of the transaction must be specified:
     const redeemFee    = 1e-4;
     const redeemAmount = 1. - redeemFee;
@@ -238,3 +224,52 @@ function TestProgram (name: string, src: string, {
     }
   }
 }
+
+function assertTxOuts (
+  tx: { hex: unknown, vout: unknown[] },
+  p2tr: string,
+  amount: number,
+  cost: number,
+  remaining?: number,
+  debug = console.debug,
+) {
+  equal(tx.vout.length, 3);
+  debug('TX:', tx);
+  hasVout(isBalance, _ => `balance: program ${p2tr} must receive ${amount}`);
+  hasVout(isFee,     _ => `fee: no deploy fee matching ${cost}`);
+  //hasVout((x: Btc.Vout)=>x.value===remaining, v => `remaining: must be ${v}`);
+  return tx
+  function hasVout (f: Fn, msg: (v)=>string) {
+     if (tx.vout.filter(f).length !== 1) throw new Error(`post deploy: ${msg(tx.vout)}`);
+  }
+  function isBalance (x: Btc.Vout) {
+    return ((x.value===amount) && (x.scriptPubKey.address == p2tr));
+  }
+  function isFee (x: Btc.Vout) {
+    return x.value === cost;
+  }
+}
+
+    //debug(`UTXOS of sender (${sender}):`, unspent)
+    //process.exit(123);
+    //// If no input TX is passed, but a faucet is available, use that.
+    //if (!inputTx) {
+      //// TODO: try using pre-existing UTXO of test account:
+      //// const utxos = await esplora.getAddressUtxos(addr);
+      //if (callFaucet) {
+        //const { txid } = await callFaucet(sender);
+        //if (txid === null) throw new Error(`faucet call failed: ${sender}`);
+        //await sleep(15000); // give it a few
+        //inputTx = await esplora!.getTxInfo(txid);
+      //} else {
+        //throw new Error(`required: inputTx, callFaucet, or utxo: ${sender}`)
+      //}
+    //}
+    //debug('Previous:', inputTx);
+    //// Find the unspent transaction outpu (support both REST and Esplora schemas)
+    //const voutIndex = (x: Btc.Vout|Esplora.Vout) => x?.n ?? x?.vout;
+    //const enumerate = <T>(x: T, index: number): [number, T] => [index, x];
+    //const isOwnedBy = (sender: string) => ([_, x]) => toAddress(x) === sender;
+    //const toAddress = (x: Btc.Vout|Esplora.Vout) => x?.scriptPubKey?.address ?? x?.scriptpubkey_address;
+    //const [i, vout] = inputTx.vout.map(enumerate).filter(isOwnedBy(sender))[0];
+    //if (!vout) throw new Error('no vout matched in previous tx');

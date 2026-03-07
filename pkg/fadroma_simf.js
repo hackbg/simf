@@ -394,7 +394,7 @@ export class Program {
      * Partially-signed redeem transaction without witnesses.
      * For manual signing.
      * @param {any} options
-     * @returns {any}
+     * @returns {object}
      */
     redeemPsbt(options) {
         if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
@@ -497,7 +497,7 @@ export class Pst {
     }
     /**
      * Show [PartiallySignedTransaction]
-     * @returns {any}
+     * @returns {object}
      */
     toPset() {
         if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
@@ -511,7 +511,7 @@ export class Pst {
     /**
      * Simplified sign procedure.
      * @param {Keypair} keypair
-     * @returns {any}
+     * @returns {object}
      */
     toSigned(keypair) {
         if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
@@ -583,7 +583,7 @@ export function pst(arg) {
 /**
  * @param {Keypair} signer
  * @param {any} options
- * @returns {any}
+ * @returns {object}
  */
 export function sendSigned(signer, options) {
     _assertClass(signer, Keypair);
@@ -599,7 +599,7 @@ export function sendSigned(signer, options) {
 
 /**
  * @param {any} options
- * @returns {any}
+ * @returns {object}
  */
 export function sendUnsigned(options) {
     const ret = wasm.sendUnsigned(options);

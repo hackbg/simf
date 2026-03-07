@@ -181,13 +181,13 @@ type Maybe<T> = Result<T, JsError>;
 }
 
 #[wasm_bindgen(js_name = sendSigned)]
-pub fn send_signed (signer: &Keypair, options: &JsValue) -> Maybe<JsValue> {
+pub fn send_signed (signer: &Keypair, options: &JsValue) -> Maybe<Object> {
     let (mut psbt, _) = send_from_js(options, None, None)?;
     Pst(psbt).to_signed(signer)
 }
 
 #[wasm_bindgen(js_name = sendUnsigned)]
-pub fn send_unsigned (options: &JsValue) -> Maybe<JsValue> {
+pub fn send_unsigned (options: &JsValue) -> Maybe<Object> {
     ret_pst(&send_from_js(options, None, None)?.0)
 }
 
@@ -284,16 +284,13 @@ pub fn pst (arg: Object) -> Maybe<Pst> {
     }
     /// Show [PartiallySignedTransaction]
     #[wasm_bindgen(js_name = toPset)]
-    pub fn to_pset (&self) -> Maybe<JsValue> {
+    pub fn to_pset (&self) -> Maybe<Object> {
         ret_pst(&self.0)
     }
     /// Simplified sign procedure.
     #[wasm_bindgen(js_name = toSigned)]
-    pub fn to_signed (&self, keypair: &Keypair) -> Maybe<JsValue> {
-        let signed = sign(&self, keypair)?;
-        let result = ret_pst(&signed.0)?;
-        set!(result, "signedHex", JsValue::from(pset_to_hex(&signed.0)?));
-        Ok(result)
+    pub fn to_signed (&self, keypair: &Keypair) -> Maybe<Object> {
+        ret_pst(&sign(&self, keypair)?.0)
     }
 }
 
@@ -454,7 +451,7 @@ pub fn witness_types (source: JsString) -> Maybe<Object> {
     /// Partially-signed redeem transaction without witnesses.
     /// For manual signing.
     #[wasm_bindgen(js_name = redeemPsbt)]
-    pub fn redeem_psbt (&self, options: &JsValue) -> Maybe<JsValue> {
+    pub fn redeem_psbt (&self, options: &JsValue) -> Maybe<Object> {
         ret_pst(&self.redeem_psbt_utxo(options)?.0)
     }
 
@@ -668,11 +665,11 @@ fn arg_utxos (options: JsValue) -> Maybe<Vec<(OutPoint, TxOut)>> {
 }
 
 fn arg_utxo (options: JsValue) -> Maybe<(OutPoint, TxOut)> {
-    let txid  = get!(options, "txid",      arg_txid)?;
-    let vout  = get!(options, "vout",      arg_vout)?;
-    let recip = get!(options, "recipient", arg_address)?;
-    let asset = get!(options, "asset",     arg_asset_id)?;
-    let value = get!(options, "value",     arg_sats)?;
+    let txid  = get!(options, "txid",    arg_txid)?;
+    let vout  = get!(options, "vout",    arg_vout)?;
+    let recip = get!(options, "address", arg_address)?;
+    let asset = get!(options, "asset",   arg_asset_id)?;
+    let value = get!(options, "amount",  arg_sats)?;
     Ok((OutPoint { txid, vout }, TxOut {
         script_pubkey: recip.script_pubkey(),
         value: TxValue::Explicit(value),
@@ -700,7 +697,7 @@ fn arg_sats (input: JsValue) -> Maybe<u64> {
         warn!("Number -> sats (u64): * 10^8; use BigInt to avoid precision issues");
         try_!("Number -> sats (u64)": f64::try_from(input).map(|x|(x * 100000000.0) as u64))
     } else if JsString::is_type_of(&input) {
-        warn!("String -> sats (u64): use BigInt to avoid typing issues");
+        warn!("String -> sats (u64): use BigInt to avoid type issues");
         try_debug!("String -> sats (u64)": u64::from_str(&input.as_string().unwrap_or_default()))
     } else {
         return err!("sats: received {:?}: need integer", input.js_typeof())
@@ -755,9 +752,11 @@ fn ret_tx (tx: &Transaction) -> Maybe<Object> {
     })
 }
 
-fn ret_pst (psbt: &PartiallySignedTransaction) -> Maybe<JsValue> {
-    match JSON::parse(serde_json::to_string(&psbt)?.as_str()) {
-        Ok(psbt) => Ok(psbt),
-        Err(_)   => err!("failed to deserialize interim psbt")
-    }
+fn ret_pst (pst: &PartiallySignedTransaction) -> Maybe<Object> {
+    Ok(obj! {
+        "global"  = try_!("pst: serialize global":  JSON::parse(serde_json::to_string(&pst.global)?.as_str()))?,
+        "inputs"  = try_!("pst: serialize inputs":  JSON::parse(serde_json::to_string(&pst.inputs())?.as_str()))?,
+        "outputs" = try_!("pst: serialize outputs": JSON::parse(serde_json::to_string(&pst.outputs())?.as_str()))?,
+        "hex"     = JsValue::from(pset_to_hex(&pst)?),
+    })
 }
