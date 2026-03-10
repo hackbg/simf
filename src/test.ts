@@ -6,7 +6,8 @@ import { Signer, Program, Wasm, Arg, Args } from './sdk.ts';
 const { is, has } = Test;
 const { sendSigned, keypair } = await Wasm();
 
-const SIGNER = await Signer(new Uint8Array(Array(32).fill(1)));
+const keypair1 = keypair(new Uint8Array(Array(32).fill(8)));
+const keypair2 = keypair(new Uint8Array(Array(32).fill(9)));
 
 /** Test the SimplicityHL support in Fadroma. */
 export default Test(import.meta, 'SimplicityHL', TestWasm(), TestOnLocalnet(), TestOnTestnet())
@@ -24,8 +25,8 @@ export function TestWasm() {
     has('sendSigned',     is('function'), (sendSigned: Fn) => {
       throws(()=>sendSigned());
       throws(()=>sendSigned({}));
-      throws(()=>sendSigned(SIGNER.keypair));
-      throws(()=>sendSigned(SIGNER.keypair, {}));
+      throws(()=>sendSigned(keypair1));
+      throws(()=>sendSigned(keypair2, {}));
     }));
 }
 
@@ -40,7 +41,7 @@ export function TestOnTestnet () {
 export function TestOnLocalnet () {
   // Tests that run on temporary localnet:
   return ElementsRegtest.Test({},
-    Rpc.SendFromWallet("100000", 8), // Fund deployer (non-secret key 8) from genesis wallet
+    Rpc.SendFromWallet("100000", ElementsRegtest.P2WPKH(keypair1.publicKey()).address),
     TestSend(), // Test the basic transaction primitive
     Test('Programs', // Test SimplicityHL commitment and redemption transactions.
       // Empty program, always passes:
@@ -79,10 +80,10 @@ export function TestOnLocalnet () {
         argTypes: { PK: "u256" },
         witTypes: { SIG: "[u8; 64]" },
         provideArgs: () => ({
-          PK: Arg.Pubkey(SIGNER.keypair.xOnlyPublicKey())
+          PK: Arg.Pubkey(keypair1.xOnlyPublicKey())
         }),
         provideWits: (sighash: Uint8Array<ArrayBufferLike>) => ({
-          SIG: Arg.Signature(SIGNER.keypair.signSchnorr(sighash)),
+          SIG: Arg.Signature(keypair1.signSchnorr(sighash)),
         }),
         fee: 2.7e-7, })),
     // Shutdown the localnet.
@@ -102,8 +103,6 @@ interface TestSend extends Btc {
 }
 
 function TestSend (amount = 3000n, fee = 12000n) {
-  const keypair1 = keypair(new Uint8Array(Array(32).fill(8)));
-  const keypair2 = keypair(new Uint8Array(Array(32).fill(9)));
   return Fn.Name(`Test sendSigned ${amount} for ${fee}`, testSend);
   async function testSend (context: TestSend) {
     const { debug = console.debug, rpc, rest, esplora, P2WPKH } = context;
@@ -185,9 +184,9 @@ function TestProgram (name: string, src: string, {
   return Fn.Name(`${name} (${p2tr||'unspecified P2TR'})`, testProgram, {
     shouldFail, name, src, cost, cmr, p2tr, argTypes, witTypes, provideArgs, provideWits,
   });
-  async function testProgram ({ rpc, rest, ID, ASSETS, P2WPKH }: Btc) {
+  async function testProgram (chain: Btc) {
     // Need chain's genesis hash to compile for the chain.
-    const genesis = await rpc.getblockhash(0);
+    const genesis = await chain.getBlockHash(0);
 
     // Parameter values are specified by the test case.
     // It's a function so they can be made context-dependent,
@@ -205,7 +204,7 @@ function TestProgram (name: string, src: string, {
     const id = await rpc.sendtoaddress(p2tr, String(1));
 
     // Create local spender wallet and import it to RPC:
-    const recipient = P2WPKH(SIGNER.pubEcdsa).address;
+    const recipient = P2WPKH(keypair1.publicKey()).address;
     await rpc.importaddress(recipient);
 
     // Note current balance:
