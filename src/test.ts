@@ -1,12 +1,9 @@
 #!/usr/bin/env -S deno run --allow-read --allow-env --allow-run --allow-write=/tmp/fadroma --allow-import=cdn.skypack.dev:443,deno.land:443 --allow-net=127.0.0.1:8941,liquidtestnet.com:443,blockstream.info:443
 import { deepStrictEqual as equal, rejects, throws, ok } from 'node:assert';
 import { Base16, Fn, Test, Run, sleep } from '../../../library/index.ts';
-import Btc, { BtcRpc, LiquidTestnet, ElementsRegtest } from '../../Bitcoin/index.ts';
-import { SendFromWallet, AssertBalance } from '../../Bitcoin/test.ts';
+import Btc, { Rpc, LiquidTestnet, ElementsRegtest } from '../../Bitcoin/index.ts';
 import { Signer, Program, Wasm, Arg, Args } from './sdk.ts';
 const { is, has } = Test;
-const { CreateWallet, Rescan } = BtcRpc;
-const { INITIAL_COINS, BITCOIN } = ElementsRegtest;
 const { sendSigned, keypair } = await Wasm();
 
 const SIGNER = await Signer(new Uint8Array(Array(32).fill(1)));
@@ -41,17 +38,9 @@ export function TestOnTestnet () {
 }
 
 export function TestOnLocalnet () {
-  /** When starting the localnet, the genesis balance is not indexed. */
-  const BALANCE_EMPTY = { bitcoin: 0 };
-  /** After RPC rescanblockchain, it shoud look like this. */
-  const BALANCE_INITIAL = { [ElementsRegtest.ASSETS.REISSUE]: 1, bitcoin: Number(INITIAL_COINS / BITCOIN) };
   // Tests that run on temporary localnet:
-  return Test('elementsregtest',
-    () => ElementsRegtest({ debugs: false, debugexclude: ['libevent'] }),
-    Run.Verbose(true), // Pipe the localnet's output to stderr
-    CreateWallet('test-simf', AssertBalance(BALANCE_EMPTY)),
-    Rescan(AssertBalance(BALANCE_INITIAL)),
-    SendFromWallet("100000", 8), // Fund deployer (non-secret key 8) from genesis wallet
+  return ElementsRegtest.Test({},
+    Rpc.SendFromWallet("100000", 8), // Fund deployer (non-secret key 8) from genesis wallet
     TestSend(), // Test the basic transaction primitive
     Test('Programs', // Test SimplicityHL commitment and redemption transactions.
       // Empty program, always passes:

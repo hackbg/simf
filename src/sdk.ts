@@ -1,7 +1,7 @@
 import type Bitcoin    from '../../Bitcoin/index.ts';
 import Fn              from '../../../library/Fn.ts';
 import { Log }         from '../../../library/Log.ts';
-import { Num, Base16 } from '../../../library/Number.ts';
+import { Num, Base16 } from '../../../library/Num.ts';
 import process         from 'node:process';
 
 import type {
