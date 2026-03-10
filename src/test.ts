@@ -2,9 +2,9 @@
 import { deepStrictEqual as equal, rejects, throws, ok } from 'node:assert';
 import { Base16, Fn, Test, Run, sleep } from '../../../library/index.ts';
 import Btc, { Rpc, LiquidTestnet, ElementsRegtest } from '../../Bitcoin/index.ts';
-import { Signer, Program, Wasm, Arg, Args } from './sdk.ts';
+import * as SimplicityHL from './sdk.ts';
 const { is, has } = Test;
-const { sendSigned, keypair } = await Wasm();
+const { sendSigned, keypair } = await SimplicityHL.Wasm();
 
 const keypair1 = keypair(new Uint8Array(Array(32).fill(8)));
 const keypair2 = keypair(new Uint8Array(Array(32).fill(9)));
@@ -14,7 +14,7 @@ export default Test(import.meta, 'SimplicityHL', TestWasm(), TestOnLocalnet(), T
 
 // Check that the API entrypoints are present on the WASM module:
 export function TestWasm() {
-  return Test('WASM', () => Wasm(),
+  return Test('WASM', () => SimplicityHL.Wasm(),
     has('paramTypes',     is('function')),
     has('witnessTypes',   is('function')),
     has('compiler',       is('function')),
@@ -80,10 +80,10 @@ export function TestOnLocalnet () {
         argTypes: { PK: "u256" },
         witTypes: { SIG: "[u8; 64]" },
         provideArgs: () => ({
-          PK: Arg.Pubkey(keypair1.xOnlyPublicKey())
+          PK: SimplicityHL.Arg.Pubkey(keypair1.xOnlyPublicKey())
         }),
         provideWits: (sighash: Uint8Array<ArrayBufferLike>) => ({
-          SIG: Arg.Signature(keypair1.signSchnorr(sighash)),
+          SIG: SimplicityHL.Arg.Signature(keypair1.signSchnorr(sighash)),
         }),
         fee: 2.7e-7, })),
     // Shutdown the localnet.
@@ -176,7 +176,7 @@ function TestProgram (name: string, src: string, {
   argTypes    = {} as Record<string, string>,
   witTypes    = {} as Record<string, string>,
   /** Function that provides parameter data. */
-  provideArgs = null as null|Fn.Returns<Fn.Async<Args>>,
+  provideArgs = null as null|Fn.Returns<Fn.Async<SimplicityHL.Args>>,
   /** Function that provides witness data. */
   provideWits = null as null|Fn<[Uint8Array<ArrayBufferLike>], Fn.Async<object>>,
 } = {}) {
@@ -194,14 +194,19 @@ function TestProgram (name: string, src: string, {
     const args = provideArgs ? await provideArgs() : undefined;
 
     // Ok, compile this program for this chain with these arguments.
-    const prog = await Program(src, { chain: ID, genesis, args });
+    const prog = await SimplicityHL.Program(src, { chain: chain.ID, genesis, args });
 
     // Check against expected program address, if provided.
     if (p2tr) equal(prog.p2tr, p2tr);
 
     // Fund program from deployer:
     // TODO: Use sendSigned
-    const id = await rpc.sendtoaddress(p2tr, String(1));
+    const commitAmount = 1_00000000n;
+    const commitTxid = await SimplicityHL.Spend()
+      .input(chain.findUtxo(keypair1, commitAmount).keypair1)
+      .output(p2tr, commitAmount)
+      .fee(fee)
+      .broadcast(chain);
 
     // Create local spender wallet and import it to RPC:
     const recipient = P2WPKH(keypair1.publicKey()).address;
