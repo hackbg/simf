@@ -111,12 +111,6 @@ export function TestOnLocalnet () {
   );
 }
 
-interface TestProgram extends Pick<Btc, 'rpc'|'rest'|'esplora'> {
-  ID,
-  ASSETS,
-  P2WPKH,
-}
-
 /** Define example program. */
 function TestProgram (name: string, src: string, {
   /** Program runs that should fail. */
@@ -134,73 +128,78 @@ function TestProgram (name: string, src: string, {
   /** Function that provides witness data. */
   provideWits = null as null|Fn<[Uint8Array<ArrayBufferLike>], Fn.Async<object>>,
 } = {}) {
-  const cost = fee;
+
+  const commitAmount = 1_00000000n;
+  const redeemFee    = 1e-4;
+  const redeemAmount = 1. - redeemFee;
+
   return Fn.Name(`${name} (${p2tr||'unspecified P2TR'})`, testProgram, {
-    shouldFail, name, src, cost, cmr, p2tr, argTypes, witTypes, provideArgs, provideWits,
+    shouldFail, name, src, fee, cmr, p2tr, argTypes, witTypes, provideArgs, provideWits,
   });
+
+  // Test the SimplicityHL program specified above on the given chain.
   async function testProgram (chain: Btc) {
-    // Need chain's genesis hash to compile for the chain.
-    const genesis = await chain.getBlockHash(0);
 
-    // Parameter values are specified by the test case.
-    // It's a function so they can be made context-dependent,
-    // but for now they are constant.
-    const args = provideArgs ? await provideArgs() : undefined;
-
-    // Ok, compile this program for this chain with these arguments.
-    const prog = await SimplicityHL.Program(src, { chain: chain.ID, genesis, args });
+    // Compile this program with these arguments for this chain.
+    const program = await SimplicityHL.Program(src, {
+      // Expected program address, optional. Makes it safer.
+      address: p2tr,
+      // Represents config such as HRP, prefix bytes...
+      // TODO expose
+      chain:   chain.ID,
+      // Need chain's genesis hash to compile for the chain.
+      genesis: await chain.getBlockHash(0),
+      // Parameter values are specified by the test case.
+      // It's a function so they can be made context-dependent,
+      // but for now they are constant.
+      args:    provideArgs ? await provideArgs() : undefined,
+    });
 
     // Check against expected program address, if provided.
-    if (p2tr) equal(prog.p2tr, p2tr);
+    if (p2tr) equal(program.p2tr, p2tr);
 
     // Fund program from deployer:
-    // TODO: Use sendSigned
-    const commitAmount = 1_00000000n;
     const commitSource = await chain.getUtxo(chain.P2WPKH(keypair1.publicKey()).address);
-    const commitTxid   = await SimplicityHL.Spend()
+    const commitTxid = await SimplicityHL.Spend() // TODO wrap as program.commit() ?
       .asset(commitSource.asset)
       .input(commitSource, keypair1)
       .output(p2tr, commitAmount)
       .fee(fee)
       .broadcast(chain);
 
-    // Create local spender wallet and import it to RPC:
+    // Note current recipient balance:
     const recipient = chain.P2WPKH(keypair1.publicKey()).address;
-    await rpc.importaddress(recipient);
-
-    // Note current balance:
-    await rpc.rescanblockchain();
-    const balance = ((await rpc.getreceivedbyaddress(recipient, 0)) as { bitcoin: number }).bitcoin;
+    const balance = (await chain.getBalance(recipient, 0))['bitcoin'];
 
     // Find commit (deploy) output = redeem (spend) input:
-    const asset = ASSETS.DEFAULT;
-    const prev = await rest.tx(id);
-    assertTxOuts(prev, p2tr, 1, cost);
+    const asset = commitSource.asset;
+    const prev = await chain.getTxInfo(commitTxid);
+    assertTxOuts(prev, p2tr, 1, fee);
     const txid = prev.txid;
     const vout = prev.vout.filter(x=>x.scriptPubKey.address === p2tr)[0];
     if (!vout) throw new Error('no corresponding vout found');
     const utxos = [{ txid, asset, vout: vout.n, address: vout.scriptPubKey.address, amount: vout.value }];
 
     // To get SIGHASH_ALL for signing, first the rest of the transaction must be specified:
-    const redeemFee    = 1e-4;
-    const redeemAmount = 1. - redeemFee;
     const sighashOpts  = { asset, utxos, recipient, amount: redeemAmount, fee: redeemFee };
-    const sighash      = prog.redeemSighash(sighashOpts);
+    const sighash      = program.redeemSighash(sighashOpts);
     ok(sighash instanceof Uint8Array, 'sighash expected to be returned from WASM as Uint8Array')
     ok(Base16.encode(sighash), 'sighash expected to be base16-encodable');
-    // Try spending from program:
-    const redeemArgs = { rpc, rest, ...sighashOpts, witness: provideWits ? await provideWits(sighash) : {} };
+
+    // Construct redeem transaction with witnesses:
+    const witness = provideWits ? await provideWits(sighash) : {};
     if (shouldFail) {
-      // TX is expected to fail
-      rejects(()=>prog.rpcRedeem(redeemArgs));
-      // Balance is expected to remain the same
-      equal(await rpc.getreceivedbyaddress(recipient, 0), { bitcoin: balance });
-    } else {
-      // TX is expected to pass
-      await prog.rpcRedeem(redeemArgs);
-      // Balance is expected to increase
-      equal(await rpc.getreceivedbyaddress(recipient, 0), { bitcoin: balance + redeemAmount });
+      // Program runtime failure is caught at redeem TX construction.
+      throws(()=>program.redeemTx({ ...sighashOpts, witness }));
+      return
     }
+
+    // Spend from program:
+    const redeemTx = program.redeemTx({ ...sighashOpts, witness });
+    // TX is expected to pass
+    await chain.broadcast(redeemTx.hex);
+    // Balance is expected to increase
+    equal(await chain.getBalance(recipient, 0), { bitcoin: balance + redeemAmount });
   }
 }
 
@@ -213,7 +212,7 @@ function assertTxOuts (
   debug = console.debug,
 ) {
   equal(tx.vout.length, 3);
-  debug('TX:', tx);
+  //debug('TX:', tx);
   hasVout(isBalance, _ => `balance: program ${p2tr} must receive ${amount}`);
   hasVout(isFee,     _ => `fee: no deploy fee matching ${cost}`);
   //hasVout((x: Btc.Vout)=>x.value===remaining, v => `remaining: must be ${v}`);

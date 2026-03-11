@@ -1,6 +1,5 @@
-import type Bitcoin    from '../../Bitcoin/index.ts';
+import type Btc        from '../../Bitcoin/index.ts';
 import Fn              from '../../../library/Fn.ts';
-import { Log }         from '../../../library/Log.ts';
 import { Num, Base16 } from '../../../library/Num.ts';
 import process         from 'node:process';
 
@@ -12,7 +11,7 @@ import type {
 } from '../pkg/fadroma_simf.d.ts';
 
 /** WASM cache to download the binary only once. */
-let blob = null;
+let blob: unknown = null;
 /** Instance of SimplicityHL WASM module. */
 export type Wasm = InitOutput;
 /** Load SimplicityHL WASM module. */
@@ -45,25 +44,25 @@ export interface Spend {
   /** Set the transaction fee. */
   fee (amount: Num): this;
   /** Add a P2WPKH input with signer. */
-  input (utxo: Btc.Utxo, signer: Signer): this;
+  input (utxo: Btc.Utxo, signer: Keypair): this;
   /** Add a SimplicityHL/Taproot input with witness .*/
   input (utxo: Btc.Utxo, program: Program, witness: Fn): this;
   /** Add a transaction output. */
   output (address: string, amount: Num): this;
   /** Broadcast the signed transaction. */
-  broadcast (chain: Chain): Promise<Btc.TxInfo>;
+  broadcast (chain: Btc): Promise<Btc.Tx>;
 }
 
 /** Start building a spend transaction. */
 export function Spend (): Spend {
-  let utxo    = null;
-  let signer  = null;
-  let program = null;
-  let witness = null;
-  let address = null;
-  let amount  = null;
-  let fee     = null;
-  let asset   = null;
+  let utxo    = null as unknown as Btc.Utxo;
+  let signer  = null as unknown as Keypair;
+  let program = null as unknown as Program;
+  let witness = null as unknown as Fn;
+  let address = null as unknown as string;
+  let amount  = null as unknown as Num;
+  let fee     = null as unknown as Num;
+  let asset   = null as unknown as string;
   const spend = {
     asset (id: string) {
       if (asset && asset != id) {
@@ -78,22 +77,22 @@ export function Spend (): Spend {
       }
       utxo = x;
       if (args.length === 1) {
-        signer = args[0];
+        signer = args[0] as Keypair;
       } else if (args.length === 2) {
         if (typeof program !== 'object') {
           throw new Error('.input(utxo, program <- must be object, ...')
         }
-        program = args[0];
+        program = args[0] as Program;
         if (typeof witness !== 'function') {
           throw new Error('.input(utxo, program, witness <- must be function')
         }
-        witness = args[1];
+        witness = args[1] as Fn;
       } else {
         throw new Error('use .input(utxo, signer) or .input(utxo, program, witness)')
       }
       return spend;
     },
-    output (x: string, y: num) {
+    output (x: string, y: Num) {
       if (!asset) {
         throw new Error('use .asset(id) first to assert asset id')
       }
@@ -106,14 +105,13 @@ export function Spend (): Spend {
       return spend;
     },
     async broadcast (chain: Btc) {
-      const debug = (chain.debug ?? console.debug) || (() => {}); // ha!
       if (!utxo) throw new Error('no input specified')
       if (!address || !amount) throw new Error('no output specified')
       if (!fee) throw new Error('no fee specified')
       const sender = chain.P2WPKH(signer.publicKey()).address;
       const options = { recipient: address, sender, utxos: [utxo], asset: utxo.asset, amount, fee };
       const { sendSigned } = await Wasm();
-      const { hex } = await sendSigned(signer, options);
+      const { hex } = sendSigned(signer, options);
       return await chain.broadcast(hex);
     }
   };
@@ -173,10 +171,7 @@ export namespace Arg {
 }
 
 /** SimplicityHL program compiler for specific chain and parameters. */
-export type Program = WasmProgram & {
-  rpcCommit: Fn,
-  rpcRedeem: Fn,
-};
+export type Program = WasmProgram & { p2tr: string };
 /** Load WASM with default settings, create [Compiler], and compile program.
   *
   * Example:
@@ -200,23 +195,25 @@ export type Program = WasmProgram & {
   *
   **/
 export async function Program (source: string, {
-  args,
-  chain   = 'elementsregtest',
+  args    = {} as unknown as Args,
+  chain   = 'elementsregtest' as Btc["ID"],
   genesis = '0000000000000000000000000000000000000000000000000000000000000000',
-}: {
-  args?:    Args,
-  chain?:  'elementsregtest'|'liquidtestnet',
-  genesis?: string
+  address = null as string|null,
 } = {}): Promise<Program> {
   const missing = (name: string) => { throw new Error(`missing: ${name}`) }
   // Compilation is synchronous, but we have to wait for the WASM the first time (FIXME?)
   const compiler = (await Wasm()).compiler({ chain, genesis });
   // Compile the program for the target chain, receiving a WASM descriptor.
-  const program = compiler.compile(source, { args, chain });
+  const program = compiler.compile(source, { args, chain }) as unknown as Program;
   // Inspect WASM program descriptor, receiving the P2TR.
   const fields = (program as unknown as { toJSON (): Program }).toJSON();
   // Manually attach properties and methods:
-  return Object.assign(program, fields);
+  Object.assign(program, fields);
+  // If a different address is expected, throw:
+  if (program.p2tr !== address) {
+    throw new Error(`Program compiled to ${program.p2tr} instead of expected ${address}`)
+  }
+  return program;
 }
 
 export type * from './pkg/fadroma_simf.d.ts';
