@@ -13,7 +13,7 @@ const keypair2 = keypair(new Uint8Array(Array(32).fill(9)));
 export default Test(import.meta, 'SimplicityHL', TestWasm(), TestOnLocalnet(), TestOnTestnet())
 
 // Check that the API entrypoints are present on the WASM module:
-export function TestWasm() {
+export function TestWasm () {
   return Test('WASM', () => SimplicityHL.Wasm(),
     has('paramTypes',     is('function')),
     has('witnessTypes',   is('function')),

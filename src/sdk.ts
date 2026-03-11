@@ -27,6 +27,74 @@ export async function Wasm ({
   return wrap;
 }
 
+/** Spend transaction builder.
+  *
+  * TODO: Support multiple outputs, multiple inputs, multiple assets, in that order.
+  * This will happen by extending the `sendSigner` Rust implementation. */
+export interface Spend {
+  /** Transaction asset. */
+  readonly asset: string;
+  /** Set the transaction fee. */
+  fee (amount: Num): this;
+  /** Add a P2WPKH input with signer. */
+  input (utxo: Btc.Utxo, signer: Signer): this;
+  /** Add a SimplicityHL/Taproot input with witness .*/
+  input (utxo: Btc.Utxo, program: Program, witness: Fn): this;
+  /** Add a transaction output. */
+  output (address: string, amount: Num): this;
+  /** Broadcast the signed transaction. */
+  broadcast (chain: Chain): Promise<Btc.TxInfo>;
+}
+
+/** Start building a spend transaction. */
+export function Spend (asset: string): Spend {
+  let utxo    = null;
+  let signer  = null;
+  let program = null;
+  let witness = null;
+  let address = null;
+  let amount  = null;
+  let fee     = null;
+  const spend = {
+    fee (x: Num) {
+      fee = x;
+      return spend;
+    },
+    input (x: Btc.Utxo, ...args: unknown[]) {
+      utxo = x;
+      if (args.length === 1) {
+        signer = args[0];
+      } else if (args.length === 2) {
+        if (typeof program !== 'object') {
+          throw new Error('.input(utxo, program <- must be object, ...')
+        }
+        program = args[0];
+        if (typeof witness !== 'function') {
+          throw new Error('.input(utxo, program, witness <- must be function')
+        }
+        witness = args[1];
+      } else {
+        throw new Error('use .input(utxo, signer) or .input(utxo, program, witness)')
+      }
+      return spend;
+    },
+    output (x: string, y: num) {
+      address = x;
+      amount  = y;
+      return spend;
+    },
+    async broadcast (chain: Btc) {
+      if (!utxo) throw new Error('no input specified')
+      if (!address || !amount) throw new Error('no output specified')
+      if (!fee) throw new Error('no fee specified')
+      const { sendSigned } = await Wasm();
+      const { hex } = await sendSigned(signer, {});
+      return await chain.broadcast(hex);
+    }
+  };
+  return spend;
+}
+
 /** WASM instance of keypair. */
 export type Keypair = WasmKeypair;
 /** Load [Wasm] with default settings and create a [WasmKeypair]. */
