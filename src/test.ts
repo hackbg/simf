@@ -30,6 +30,23 @@ export function TestWasm () {
     }));
 }
 
+// Test the spend helper.
+function TestSend (amount = 3000n, fee = 12000n) {
+  return Fn.Name(`Spend ${amount} for ${fee}`, testSend);
+  async function testSend (chain: Btc) {
+    const debug = chain.debug || console.debug;
+    const from  = chain.P2WPKH(keypair1.publicKey()).address;
+    const to    = chain.P2WPKH(keypair2.publicKey()).address;
+    const utxo  = await chain.getUtxo(from);
+    return Object.assign(chain, await SimplicityHL.Spend()
+      .asset(utxo.asset)
+      .input(utxo, keypair1)
+      .output(to, amount)
+      .fee(fee).broadcast(chain));
+  }
+}
+
+// Self-explanatory.
 export function TestOnTestnet () {
   // Tests that touch Liquid Testnet using Esplora
   return Test('liquidtestnet', () => LiquidTestnet(),
@@ -38,6 +55,7 @@ export function TestOnTestnet () {
   );
 }
 
+// Self-explanatory.
 export function TestOnLocalnet () {
   // Tests that run on temporary localnet:
   return ElementsRegtest.Test({},
@@ -93,61 +111,6 @@ export function TestOnLocalnet () {
   );
 }
 
-function TestSend (amount = 3000n, fee = 12000n) {
-  return Fn.Name(`Spend ${amount} for ${fee}`, testSend);
-  async function testSend (chain: Btc) {
-    const debug = chain.debug || console.debug;
-    const from  = chain.P2WPKH(keypair1.publicKey()).address;
-    const to    = chain.P2WPKH(keypair2.publicKey()).address;
-    const utxo  = await findUtxo(from);
-    return Object.assign(chain, await SimplicityHL.Spend()
-      .asset(utxo.asset)
-      .input(utxo, keypair1)
-      .output(to, amount)
-      .fee(fee).broadcast(chain));
-
-    async function sendSignedTransaction (hex: string) {
-      debug('Broadcasting signed transaction:', signed);
-      if (rpc && rest) {
-        const id = await rpc!.sendrawtransaction(hex);
-        await rpc!.rescanblockchain();
-        const tx = await rest!.tx(id);
-        return tx;
-      } else if (esplora) {
-        const id = await esplora.postTx(hex);
-        while (true) {
-          const mempool = await esplora.getMempoolTxids().then(JSON.parse);
-          if (mempool.includes(id)) {
-            debug('TX still in mempool:', id);
-            await sleep(1000);
-          } else {
-            return esplora.getTxInfo(id);
-          }
-        }
-      } else {
-        throw new Error('need { rpc, rest } or { esplora } to broadcast signed transaction');
-      }
-    }
-
-    async function findUtxo (address: string): { asset, txid, vout, amount, address } {
-      const { rpc, esplora } = chain;
-      if (rpc) {
-        const unspent = await rpc.listunspent(0, 9999999, [address]); // TODO filter
-        if (!unspent[0]) throw new Error(`no UTXOs for ${address}`);
-        const { txid, vout, amount, asset } = unspent[0];
-        return { asset, txid, vout, address, amount };
-      } else if (esplora) {
-        const unspent = await esplora.getAddressUtxos(address);
-        if (!unspent[0]) throw new Error(`no UTXOs for ${address}`)
-        const { txid, vout, value, asset } = unspent[0];
-        return { asset, txid, vout, address, amount: BigInt(value) };
-      } else {
-        throw new Error('need { rpc } or { esplora } to find unspent output');
-      }
-    }
-  }
-}
-
 interface TestProgram extends Pick<Btc, 'rpc'|'rest'|'esplora'> {
   ID,
   ASSETS,
@@ -193,31 +156,13 @@ function TestProgram (name: string, src: string, {
     // Fund program from deployer:
     // TODO: Use sendSigned
     const commitAmount = 1_00000000n;
-    const commitSource = await findUtxo(chain.P2WPKH(keypair1.publicKey()).address);
+    const commitSource = await chain.getUtxo(chain.P2WPKH(keypair1.publicKey()).address);
     const commitTxid   = await SimplicityHL.Spend()
       .asset(commitSource.asset)
       .input(commitSource, keypair1)
       .output(p2tr, commitAmount)
       .fee(fee)
       .broadcast(chain);
-
-    async function findUtxo (address: string): { asset, txid, vout, amount, address } {
-      const { rpc, esplora } = chain;
-      if (rpc) {
-        const unspent = await rpc.listunspent(0, 9999999, [address]); // TODO filter
-        if (!unspent[0]) throw new Error(`no UTXOs for ${address}`);
-        const { txid, vout, amount, asset } = unspent[0];
-        return { asset, txid, vout, address, amount };
-      } else if (esplora) {
-        const unspent = await esplora.getAddressUtxos(address);
-        if (!unspent[0]) throw new Error(`no UTXOs for ${address}`)
-        const { txid, vout, value, asset } = unspent[0];
-        return { asset, txid, vout, address, amount: BigInt(value) };
-      } else {
-        throw new Error('need { rpc } or { esplora } to find unspent output');
-      }
-    }
-
 
     // Create local spender wallet and import it to RPC:
     const recipient = chain.P2WPKH(keypair1.publicKey()).address;
