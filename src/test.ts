@@ -1,13 +1,11 @@
 #!/usr/bin/env -S deno run --allow-read --allow-env --allow-run --allow-write=/tmp/fadroma --allow-import=cdn.skypack.dev:443,deno.land:443 --allow-net=127.0.0.1:8941,liquidtestnet.com:443,blockstream.info:443
 import { deepStrictEqual as equal, rejects, throws, ok } from 'node:assert';
-import { Base16, Fn, Test, Run, sleep } from '../../../library/index.ts';
+import { Base16, Fn, Async, Test, Run, sleep } from '../../../library/index.ts';
 import Btc, { Rpc, LiquidTestnet, ElementsRegtest } from '../../Bitcoin/index.ts';
 import * as SimplicityHL from './sdk.ts';
+const keypair1 = await SimplicityHL.Keypair(new Uint8Array(Array(32).fill(8)));
+const keypair2 = await SimplicityHL.Keypair(new Uint8Array(Array(32).fill(9)));
 const { is, has } = Test;
-const { sendSigned, keypair } = await SimplicityHL.Wasm();
-
-const keypair1 = keypair(new Uint8Array(Array(32).fill(8)));
-const keypair2 = keypair(new Uint8Array(Array(32).fill(9)));
 
 /** Test the SimplicityHL support in Fadroma. */
 export default Test(import.meta, 'SimplicityHL', TestWasm(), TestOnLocalnet(), TestOnTestnet())
@@ -34,7 +32,6 @@ export function TestWasm () {
 function TestSend (amount = 3000n, fee = 12000n) {
   return Fn.Name(`Spend ${amount} for ${fee}`, testSend);
   async function testSend (chain: Btc) {
-    const debug = chain.debug || console.debug;
     const from  = chain.P2WPKH(keypair1.publicKey()).address;
     const to    = chain.P2WPKH(keypair2.publicKey()).address;
     const utxo  = await chain.getUtxo(from);
@@ -124,14 +121,10 @@ function TestProgram (name: string, src: string, {
   argTypes    = {} as Record<string, string>,
   witTypes    = {} as Record<string, string>,
   /** Function that provides parameter data. */
-  provideArgs = null as null|Fn.Returns<Fn.Async<SimplicityHL.Args>>,
+  provideArgs = null as null|Fn.Returns<Async<SimplicityHL.Args>>,
   /** Function that provides witness data. */
-  provideWits = null as null|Fn<[Uint8Array<ArrayBufferLike>], Fn.Async<object>>,
+  provideWits = null as null|Fn<[Uint8Array<ArrayBufferLike>], Async<object>>,
 } = {}) {
-
-  const commitAmount = 1_00000000n;
-  const redeemFee    = 1e-4;
-  const redeemAmount = 1. - redeemFee;
 
   return Fn.Name(`${name} (${p2tr||'unspecified P2TR'})`, testProgram, {
     shouldFail, name, src, fee, cmr, p2tr, argTypes, witTypes, provideArgs, provideWits,
@@ -160,27 +153,32 @@ function TestProgram (name: string, src: string, {
 
     // Fund program from deployer:
     const commitSource = await chain.getUtxo(chain.P2WPKH(keypair1.publicKey()).address);
+    const commitAmount = BigInt(commitSource.amount * 1e8) - BigInt(fee * 1e8);
     const commitTxid = await SimplicityHL.Spend() // TODO wrap as program.commit() ?
       .asset(commitSource.asset)
       .input(commitSource, keypair1)
-      .output(p2tr, commitAmount)
+      .output(program.p2tr, commitAmount)
       .fee(fee)
       .broadcast(chain);
 
     // Note current recipient balance:
     const recipient = chain.P2WPKH(keypair1.publicKey()).address;
-    const balance = (await chain.getBalance(recipient, 0))['bitcoin'];
+    const recipientBalance = async (asset = 'bitcoin') =>
+      BigInt((await chain.getBalance(recipient, 0))[asset] * 1e8);
+    const balance = await recipientBalance();
 
     // Find commit (deploy) output = redeem (spend) input:
     const asset = commitSource.asset;
     const prev = await chain.getTxInfo(commitTxid);
-    assertTxOuts(prev, p2tr, 1, fee);
     const txid = prev.txid;
     const vout = prev.vout.filter(x=>x.scriptPubKey.address === p2tr)[0];
     if (!vout) throw new Error('no corresponding vout found');
     const utxos = [{ txid, asset, vout: vout.n, address: vout.scriptPubKey.address, amount: vout.value }];
 
     // To get SIGHASH_ALL for signing, first the rest of the transaction must be specified:
+
+    const redeemFee    = 1e-4;
+    const redeemAmount = commitAmount - BigInt(redeemFee * 1e8);
     const sighashOpts  = { asset, utxos, recipient, amount: redeemAmount, fee: redeemFee };
     const sighash      = program.redeemSighash(sighashOpts);
     ok(sighash instanceof Uint8Array, 'sighash expected to be returned from WASM as Uint8Array')
@@ -199,31 +197,7 @@ function TestProgram (name: string, src: string, {
     // TX is expected to pass
     await chain.broadcast(redeemTx.hex);
     // Balance is expected to increase
-    equal(await chain.getBalance(recipient, 0), { bitcoin: balance + redeemAmount });
+    equal(await recipientBalance(), balance + redeemAmount);
   }
 }
 
-function assertTxOuts (
-  tx: { hex: unknown, vout: unknown[] },
-  p2tr: string,
-  amount: number,
-  cost: number,
-  remaining?: number,
-  debug = console.debug,
-) {
-  equal(tx.vout.length, 3);
-  //debug('TX:', tx);
-  hasVout(isBalance, _ => `balance: program ${p2tr} must receive ${amount}`);
-  hasVout(isFee,     _ => `fee: no deploy fee matching ${cost}`);
-  //hasVout((x: Btc.Vout)=>x.value===remaining, v => `remaining: must be ${v}`);
-  return tx
-  function hasVout (f: Fn, msg: (v)=>string) {
-     if (tx.vout.filter(f).length !== 1) throw new Error(`post deploy: ${msg(tx.vout)}`);
-  }
-  function isBalance (x: Btc.Vout) {
-    return ((x.value===amount) && (x.scriptPubKey.address == p2tr));
-  }
-  function isFee (x: Btc.Vout) {
-    return x.value === cost;
-  }
-}

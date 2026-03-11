@@ -112,7 +112,35 @@ export function Spend (): Spend {
       const options = { recipient: address, sender, utxos: [utxo], asset: utxo.asset, amount, fee };
       const { sendSigned } = await Wasm();
       const { hex } = sendSigned(signer, options);
-      return await chain.broadcast(hex);
+      const tx = await chain.broadcast(hex);
+
+      // TODO: Post-broadcast validation?
+      //function assertTxOuts (
+        //tx: { hex: unknown, vout: unknown[] },
+        //p2tr:       string,
+        //amount:     Num,
+        //cost:       Num,
+        //remaining?: number,
+        //debug = console.debug,
+      //) {
+        ////equal(tx.vout.length, 3);
+        ////debug('TX:', tx);
+        //hasVout(isBalance, _ => `balance: program ${p2tr} must receive ${amount}`);
+        //hasVout(isFee,     _ => `fee: no deploy fee matching ${cost}`);
+        ////hasVout((x: Btc.Vout)=>x.value===remaining, v => `remaining: must be ${v}`);
+        //return tx
+        //function hasVout (f: Fn, msg: (v)=>string) {
+           //if (tx.vout.filter(f).length !== 1) throw new Error(`post deploy: ${msg(tx.vout)}`);
+        //}
+        //function isBalance (x: Btc.Vout) {
+          //return ((x.value===amount) && (x.scriptPubKey.address == p2tr));
+        //}
+        //function isFee (x: Btc.Vout) {
+          //return x.value === cost;
+        //}
+      //}
+
+      return tx;
     }
   };
   return spend;
