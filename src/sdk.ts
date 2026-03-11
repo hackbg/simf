@@ -11,6 +11,8 @@ import type {
   Program  as WasmProgram,
 } from '../pkg/fadroma_simf.d.ts';
 
+/** WASM cache to download the binary only once. */
+let blob = null;
 /** Instance of SimplicityHL WASM module. */
 export type Wasm = InitOutput;
 /** Load SimplicityHL WASM module. */
@@ -19,10 +21,16 @@ export async function Wasm ({
   // You can replace this with w.g. `readFile` from `fs/promises`; or polyfill `globalThis.fetch`
   fetch = globalThis.fetch
 } = {}) {
-  console.debug(`Loading Fadroma SimplicityHL WASM module from ${wasm}`);
   const conform = (x: string|URL) => new URL(x).toString();
   const wrap = await import('../pkg/fadroma_simf.js');
-  if ((typeof wasm === 'string')||(wasm instanceof URL)) wasm = await fetch(conform(wasm));
+  if (!blob) {
+    if ((typeof wasm === 'string')||(wasm instanceof URL)) {
+      console.debug(`Loading Fadroma SimplicityHL WASM module from ${wasm}`);
+      blob = await fetch(conform(wasm));
+    } else {
+      throw new Error(`Invalid WASM URL, need string or URL, got: ${wasm}`)
+    }
+  }
   await wrap.default(wasm);
   return wrap;
 }
