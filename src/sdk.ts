@@ -32,8 +32,8 @@ export async function Wasm ({
   * TODO: Support multiple outputs, multiple inputs, multiple assets, in that order.
   * This will happen by extending the `sendSigner` Rust implementation. */
 export interface Spend {
-  /** Transaction asset. */
-  readonly asset: string;
+  /** Call this first to set the expected transaction asset. */
+  asset (id: string): this;
   /** Set the transaction fee. */
   fee (amount: Num): this;
   /** Add a P2WPKH input with signer. */
@@ -47,7 +47,7 @@ export interface Spend {
 }
 
 /** Start building a spend transaction. */
-export function Spend (asset: string): Spend {
+export function Spend (): Spend {
   let utxo    = null;
   let signer  = null;
   let program = null;
@@ -55,12 +55,19 @@ export function Spend (asset: string): Spend {
   let address = null;
   let amount  = null;
   let fee     = null;
+  let asset   = null;
   const spend = {
-    fee (x: Num) {
-      fee = x;
-      return spend;
+    asset (id: string) {
+      if (asset && asset != id) {
+        throw new Error(`.asset(id) already set to ${asset}, attempted to override with ${id}`)
+      }
+      asset = id;
+      return this;
     },
     input (x: Btc.Utxo, ...args: unknown[]) {
+      if (!asset) {
+        throw new Error('use .asset(id) first to assert asset id')
+      }
       utxo = x;
       if (args.length === 1) {
         signer = args[0];
@@ -79,16 +86,26 @@ export function Spend (asset: string): Spend {
       return spend;
     },
     output (x: string, y: num) {
+      if (!asset) {
+        throw new Error('use .asset(id) first to assert asset id')
+      }
       address = x;
-      amount  = y;
+      amount = y;
+      return spend;
+    },
+    fee (x: Num) {
+      fee = x;
       return spend;
     },
     async broadcast (chain: Btc) {
+      const debug = (chain.debug ?? console.debug) || (() => {}); // ha!
       if (!utxo) throw new Error('no input specified')
       if (!address || !amount) throw new Error('no output specified')
       if (!fee) throw new Error('no fee specified')
+      const sender = chain.P2WPKH(signer.publicKey()).address;
+      const options = { recipient: address, sender, utxos: [utxo], asset: utxo.asset, amount, fee };
       const { sendSigned } = await Wasm();
-      const { hex } = await sendSigned(signer, {});
+      const { hex } = await sendSigned(signer, options);
       return await chain.broadcast(hex);
     }
   };

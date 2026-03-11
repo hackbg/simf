@@ -93,28 +93,18 @@ export function TestOnLocalnet () {
   );
 }
 
-interface TestSend extends Btc {
-  /** Creates a P2WPKH address configured for the given network. */
-  P2WPKH:      Fn<[Uint8Array], { address: string }>,
-  /** P2WPKH address that is sending funds. */
-  sender:      string
-  /** P2WPKH address that is receiving funds. */
-  recipient:   string
-}
-
 function TestSend (amount = 3000n, fee = 12000n) {
-  return Fn.Name(`Test sendSigned ${amount} for ${fee}`, testSend);
-  async function testSend (context: TestSend) {
-    const { debug = console.debug, rpc, rest, esplora, P2WPKH } = context;
-    const sender = P2WPKH(keypair1.publicKey()).address;
-    const recipient = P2WPKH(keypair2.publicKey()).address;
-    const utxo = await findUtxo(sender);
-    debug('Input:', utxo);
-    const options = { recipient, sender, utxos: [utxo], asset: utxo.asset, amount, fee };
-    const signed = sendSigned(keypair1, options);
-    const tx = await sendSignedTransaction(signed.hex);
-    debug('Spent:', tx);
-    return Object.assign(context, tx);
+  return Fn.Name(`Spend ${amount} for ${fee}`, testSend);
+  async function testSend (chain: Btc) {
+    const debug = chain.debug || console.debug;
+    const from  = chain.P2WPKH(keypair1.publicKey()).address;
+    const to    = chain.P2WPKH(keypair2.publicKey()).address;
+    const utxo  = await findUtxo(from);
+    return Object.assign(chain, await SimplicityHL.Spend()
+      .asset(utxo.asset)
+      .input(utxo, keypair1)
+      .output(to, amount)
+      .fee(fee).broadcast(chain));
 
     async function sendSignedTransaction (hex: string) {
       debug('Broadcasting signed transaction:', signed);
@@ -140,14 +130,15 @@ function TestSend (amount = 3000n, fee = 12000n) {
     }
 
     async function findUtxo (address: string): { asset, txid, vout, amount, address } {
+      const { rpc, esplora } = chain;
       if (rpc) {
-        const unspent = await rpc.listunspent(0, 9999999, [sender]); // TODO filter
-        if (!unspent[0]) throw new Error(`no UTXOs for ${sender}`);
+        const unspent = await rpc.listunspent(0, 9999999, [address]); // TODO filter
+        if (!unspent[0]) throw new Error(`no UTXOs for ${address}`);
         const { txid, vout, amount, asset } = unspent[0];
         return { asset, txid, vout, address, amount };
       } else if (esplora) {
-        const unspent = await esplora.getAddressUtxos(sender);
-        if (!unspent[0]) throw new Error(`no UTXOs for ${sender}`)
+        const unspent = await esplora.getAddressUtxos(address);
+        if (!unspent[0]) throw new Error(`no UTXOs for ${address}`)
         const { txid, vout, value, asset } = unspent[0];
         return { asset, txid, vout, address, amount: BigInt(value) };
       } else {
@@ -203,7 +194,7 @@ function TestProgram (name: string, src: string, {
     // TODO: Use sendSigned
     const commitAmount = 1_00000000n;
     const commitTxid = await SimplicityHL.Spend()
-      .input(chain.findUtxo(keypair1, commitAmount).keypair1)
+      .input(await chain.findUtxo(keypair1, commitAmount), keypair1)
       .output(p2tr, commitAmount)
       .fee(fee)
       .broadcast(chain);
