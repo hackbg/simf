@@ -56,7 +56,7 @@ export function TestOnTestnet () {
 export function TestOnLocalnet () {
   // Tests that run on temporary localnet:
   return ElementsRegtest.Test({},
-    Rpc.SendFromWallet("100000", ElementsRegtest.P2WPKH(keypair1.publicKey()).address),
+    Rpc.SendFromWallet("1000000", ElementsRegtest.P2WPKH(keypair1.publicKey()).address),
     TestSend(), // Test the basic transaction primitive
     Test('Programs', // Test SimplicityHL commitment and redemption transactions.
       // Empty program, always passes:
@@ -90,7 +90,7 @@ export function TestOnLocalnet () {
       TestProgram("pay to pubkey", `fn main () {
         jet::bip_0340_verify((param::PK, jet::sig_all_hash()), witness::SIG)
       }`, {
-        p2tr: 'ert1ppe00tyu7xnl96056wpth5fhas3hesnehglzstluxn77fe9xx2atsaqwx5h',
+        p2tr: 'ert1pa69jdawgz5wu5uc8ce2cv7lcqf64kadyl4wsrddparl25erfj2vq9824m9',
         cmr: 'b1b4447ce3082324635798876f1ae6c9aec9a228eb6e21e3cb991f8970986965',
         argTypes: { PK: "u256" },
         witTypes: { SIG: "[u8; 64]" },
@@ -153,7 +153,7 @@ function TestProgram (name: string, src: string, {
 
     // Fund program from deployer:
     const commitSource = await chain.getUtxo(chain.P2WPKH(keypair1.publicKey()).address);
-    const commitAmount = BigInt(commitSource.amount * 1e8) - BigInt(fee * 1e8);
+    const commitAmount = BigInt(Math.floor(commitSource.amount / 100) * 1e8) - BigInt(fee * 1e8);
     const commitTxid = await SimplicityHL.Spend() // TODO wrap as program.commit() ?
       .asset(commitSource.asset)
       .input(commitSource, keypair1)
@@ -164,7 +164,7 @@ function TestProgram (name: string, src: string, {
     // Note current recipient balance:
     const recipient = chain.P2WPKH(keypair1.publicKey()).address;
     const recipientBalance = async (asset = 'bitcoin') =>
-      BigInt((await chain.getBalance(recipient, 0))[asset] * 1e8);
+      BigInt(Math.round((await chain.getBalance(recipient, 0))[asset] * 1e8));
     const balance = await recipientBalance();
 
     // Find commit (deploy) output = redeem (spend) input:
@@ -176,7 +176,6 @@ function TestProgram (name: string, src: string, {
     const utxos = [{ txid, asset, vout: vout.n, address: vout.scriptPubKey.address, amount: vout.value }];
 
     // To get SIGHASH_ALL for signing, first the rest of the transaction must be specified:
-
     const redeemFee    = 1e-4;
     const redeemAmount = commitAmount - BigInt(redeemFee * 1e8);
     const sighashOpts  = { asset, utxos, recipient, amount: redeemAmount, fee: redeemFee };
