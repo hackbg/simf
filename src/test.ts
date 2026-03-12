@@ -37,18 +37,18 @@ export function TestOnLocalnet () {
     Test('Programs', // Test SimplicityHL commitment and redemption transactions.
       // Empty program, always passes:
       TestProgram("unit program", 'fn main () {}', {
-        p2tr: 'ert1p9jcvyzkdwdqtf49kta4xpc5g35xkfcexwfsl8v70w2gwttelncyspjlnrz',
+        address: 'ert1p9jcvyzkdwdqtf49kta4xpc5g35xkfcexwfsl8v70w2gwttelncyspjlnrz',
         commitFee: 27n
       }),
       // Correct assertion, always passes:
       TestProgram("assert true", 'fn main () { assert!(true) }', {
-        p2tr: 'ert1per0vg2wvc4ua2rsndm8j6062r7z7ys7q6wcvwumepgz8t5m6hfhsrd8d8q',
+        address: 'ert1per0vg2wvc4ua2rsndm8j6062r7z7ys7q6wcvwumepgz8t5m6hfhsrd8d8q',
         commitFee: 27n
       }),
       // Incorrect assertion, always fails:
       TestProgram("assert false fails", 'fn main () { assert!(false) }', {
         shouldFail: true,
-        p2tr: 'ert1p7p4rgaw5dmhxt6qutf2v3rtuy6afghfgktmmedkpju5uamxdz5js3hdug9',
+        address: 'ert1p7p4rgaw5dmhxt6qutf2v3rtuy6afghfgktmmedkpju5uamxdz5js3hdug9',
         commitFee: 27n
       }),
       // Test basic language features. Guards against general failure of all jets
@@ -59,13 +59,13 @@ export function TestOnLocalnet () {
         let ab: u8  = <(u4, u4)>::into((0b1011, 0b1101));
         assert!(jet::eq_8(ab, 0b10111101));
       }`, {
-        p2tr: 'ert1pmy9edmq0yfrc477jvcc835umyajlgjsnyujplt8nppr45zrwl7qs02gj3x',
+        address: 'ert1pmy9edmq0yfrc477jvcc835umyajlgjsnyujplt8nppr45zrwl7qs02gj3x',
         commitFee: 27n, }),
       // Witness signing:
       TestProgram("pay to pubkey", `fn main () {
         jet::bip_0340_verify((param::PK, jet::sig_all_hash()), witness::SIG)
       }`, {
-        p2tr: 'ert1pa69jdawgz5wu5uc8ce2cv7lcqf64kadyl4wsrddparl25erfj2vq9824m9',
+        address: 'ert1pa69jdawgz5wu5uc8ce2cv7lcqf64kadyl4wsrddparl25erfj2vq9824m9',
         argTypes: { PK: "u256" },
         witTypes: { SIG: "[u8; 64]" },
         provideArgs: () => ({
@@ -75,10 +75,6 @@ export function TestOnLocalnet () {
           SIG: SimplicityHL.Arg.Signature(ALICE.signSchnorr(sighash)),
         }),
         commitFee: 27n, })),
-    // Shutdown the localnet.
-    // TODO: wrapper ElementsRegtest(async () => { do things }); then autokilled
-    () => sleep(1000),
-    Run.Kill(9)
   );
 }
 
@@ -89,9 +85,36 @@ export function TestOnTestnet () {
     TestSend(), // Test the basic transaction primitive
     Test('Programs',
       TestProgram("unit program", 'fn main () {}', {
-        p2tr: 'tex1p9jcvyzkdwdqtf49kta4xpc5g35xkfcexwfsl8v70w2gwttelncyshxjk56',
-        commitFee: 27n })),
-  );
+        address: 'tex1p9jcvyzkdwdqtf49kta4xpc5g35xkfcexwfsl8v70w2gwttelncyshxjk56',
+        commitFee: 27n }),
+      TestProgram("assert true", 'fn main () { assert!(true) }', {
+        address: 'tex1per0vg2wvc4ua2rsndm8j6062r7z7ys7q6wcvwumepgz8t5m6hfhs4e2gsc',
+        commitFee: 27n }),
+      TestProgram("assert false fails", 'fn main () { assert!(false) }', {
+        shouldFail: true,
+        address: 'tex1p7p4rgaw5dmhxt6qutf2v3rtuy6afghfgktmmedkpju5uamxdz5js8rqela',
+        commitFee: 27n }),
+      TestProgram("basic jets work", `fn main () {
+        let ab: u16 = <(u8, u8)>::into((0x10, 0x01));
+        assert!(jet::eq_16(ab, 0x1001));
+        let ab: u8  = <(u4, u4)>::into((0b1011, 0b1101));
+        assert!(jet::eq_8(ab, 0b10111101));
+      }`, {
+        address: 'tex1pmy9edmq0yfrc477jvcc835umyajlgjsnyujplt8nppr45zrwl7qse79hx7',
+        commitFee: 27n, }),
+      TestProgram("pay to pubkey", `fn main () {
+        jet::bip_0340_verify((param::PK, jet::sig_all_hash()), witness::SIG)
+      }`, {
+        address: 'tex1pa69jdawgz5wu5uc8ce2cv7lcqf64kadyl4wsrddparl25erfj2vqnn8sva',
+        argTypes: { PK: "u256" },
+        witTypes: { SIG: "[u8; 64]" },
+        provideArgs: () => ({
+          PK: SimplicityHL.Arg.Pubkey(ALICE.xOnlyPublicKey())
+        }),
+        provideWits: (sighash: Uint8Array<ArrayBufferLike>) => ({
+          SIG: SimplicityHL.Arg.Signature(ALICE.signSchnorr(sighash)),
+        }),
+        commitFee: 27n, })));
 }
 
 // Test the spend helper.
@@ -114,11 +137,11 @@ function TestProgram (name: string, src: string, {
   /** Program runs that should fail. */
   shouldFail  = false as boolean,
   /** Expected deploy fee. */
-  commitFee   = null as null|number,
+  commitFee   = 100n,
   /** Expected commitment Merkle root of program. */
   cmr         = null as null|string,
   /** Expected pay-to-taproot address of program. */
-  p2tr        = null as null|string,
+  address        = null as null|string,
   /** Expected compile-time signature of program. */
   argTypes    = {} as Record<string, string>,
   /** Expected runtime signature of program. */
@@ -129,8 +152,8 @@ function TestProgram (name: string, src: string, {
   provideWits = null as null|Fn<[Uint8Array<ArrayBufferLike>], Async<object>>,
 } = {}) {
 
-  return Fn.Name(`${name} (${p2tr||'unspecified P2TR'})`, testProgram, {
-    shouldFail, name, src, commitFee, cmr, p2tr, argTypes, witTypes, provideArgs, provideWits,
+  return Fn.Name(`${name} (${address||'unspecified P2TR'})`, testProgram, {
+    shouldFail, name, src, commitFee, cmr, address, argTypes, witTypes, provideArgs, provideWits,
   });
 
   // Test the SimplicityHL program specified above on the given chain.
@@ -140,7 +163,7 @@ function TestProgram (name: string, src: string, {
     // Compile this program with these arguments for this chain.
     const program = await SimplicityHL.Program(src, {
       // Expected program address, optional. Makes it safer.
-      address: p2tr,
+      address,
       // Represents config such as HRP, prefix bytes...
       // TODO expose
       chain:   chain.ID,
@@ -153,11 +176,16 @@ function TestProgram (name: string, src: string, {
     });
 
     // Fund program from deployer:
-    const commitSource = await chain.getUtxo(chain.P2WPKH(ALICE.publicKey()).address);
-    const commitAmount = (Btc.toSat(commitSource.amount) / 10n) - commitFee;
+    const sender       = chain.P2WPKH(ALICE.publicKey()).address;
+    const commitSource = await chain.getUtxo(sender, x => x.amount >= commitFee);
+    const commitAmount = commitSource.value - commitFee;
     const commitTxid   = await SimplicityHL.Spend() // TODO wrap as program.commit() ?
-      .asset(commitSource.asset).input(commitSource, ALICE)
-      .output(program.p2tr, commitAmount).fee(commitFee).broadcast(chain);
+      .asset(commitSource.asset)
+      .input(commitSource, ALICE)
+      .output(program.p2tr, commitAmount)
+      .fee(commitFee)
+      .broadcast(chain);
+
     debug('Commit TX:', commitTxid);
 
     // Note current recipient balance:
@@ -172,7 +200,7 @@ function TestProgram (name: string, src: string, {
     debug('Redeem from:', prev);
     let index = null;
     const vout = prev.vout.find((x: Btc.Utxo, i: number) => {
-      if (toSPKA(x) === p2tr) {
+      if (toSPKA(x) === program.p2tr) {
         index = i;
         return true;
       }
@@ -182,9 +210,9 @@ function TestProgram (name: string, src: string, {
     debug('Redeem UTXO:', redeemSource);
 
     // To get SIGHASH_ALL for signing, first the rest of the transaction must be specified:
-    const redeemFee = 1000n;
-    const redeemAmount = commitAmount - redeemFee;
-    const sighashOpts = { asset, utxos: [redeemSource], recipient, amount: redeemAmount, fee: redeemFee };
+    const redeemFee    = 200n;
+    const redeemAmount = 200n;
+    const sighashOpts  = { asset, utxos: [redeemSource], recipient, amount: redeemAmount, fee: redeemFee };
     debug('Redeem opts:', sighashOpts);
     const sighash = program.redeemSighash(sighashOpts);
     ok(sighash instanceof Uint8Array, 'sighash expected to be returned from WASM as Uint8Array')
@@ -205,12 +233,13 @@ function TestProgram (name: string, src: string, {
     // TX is expected to pass
     const redeemTxid = await chain.broadcast(hex);
     const redeemTx = await chain.waitForTx(redeemTxid);
+    debug('Redeemed:', redeemTx);
 
     // Balance is expected to increase
-    debug(await chain.getBalance(recipient, 0));
-    debug(await chain.getBalance(recipient, 0));
-    debug(await recipientBalance());
-    debug(await recipientBalance());
+    //debug(await chain.getBalance(recipient, 0));
+    //debug(await chain.getBalance(recipient, 0));
+    //debug(await recipientBalance());
+    //debug(await recipientBalance());
     //equal(await recipientBalance(), balance + redeemAmount);
   }
 
