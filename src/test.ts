@@ -106,7 +106,6 @@ function TestSend (amount = 1000n, fee = 1000n) {
       .input(utxo, ALICE).output(to, amount).fee(fee).broadcast(chain);
     debug({sent});
     await chain.waitForTx(sent);
-    return Object.assign(chain, sent);
   }
 }
 
