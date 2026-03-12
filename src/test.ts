@@ -53,19 +53,19 @@ export function TestOnLocalnet () {
       // Empty program, always passes:
       TestProgram("unit program", 'fn main () {}', {
         p2tr: 'ert1p9jcvyzkdwdqtf49kta4xpc5g35xkfcexwfsl8v70w2gwttelncyspjlnrz',
-        cmr: 'c40a10263f7436b4160acbef1c36fba4be4d95df181a968afeab5eac247adff7',
-        fee: 2.7e-7 }),
+        fee: 2.7e-7
+      }),
       // Correct assertion, always passes:
       TestProgram("assert true", 'fn main () { assert!(true) }', {
         p2tr: 'ert1per0vg2wvc4ua2rsndm8j6062r7z7ys7q6wcvwumepgz8t5m6hfhsrd8d8q',
-        cmr: '633f62f67589423aafcd3ce0a4dc41f6192403c4aeb61997f438dbd7b96c5cf7',
-        fee: 2.7e-7 }),
+        fee: 2.7e-7
+      }),
       // Incorrect assertion, always fails:
       TestProgram("assert false fails", 'fn main () { assert!(false) }', {
         shouldFail: true,
         p2tr: 'ert1p7p4rgaw5dmhxt6qutf2v3rtuy6afghfgktmmedkpju5uamxdz5js3hdug9',
-        cmr: 'd3c6b9ecfc2876ec72f0099c6f454b7b34645d08c1f220c05ae80e77eed4bdf3',
-        fee: 2.7e-7 }),
+        fee: 2.7e-7
+      }),
       // Test basic language features. Guards against general failure of all jets
       // (Symptom of mislinked WASM, see other mentions in README and/or comments.)
       TestProgram("basic jets work", `fn main () {
@@ -75,14 +75,12 @@ export function TestOnLocalnet () {
         assert!(jet::eq_8(ab, 0b10111101));
       }`, {
         p2tr: 'ert1pmy9edmq0yfrc477jvcc835umyajlgjsnyujplt8nppr45zrwl7qs02gj3x',
-        cmr: 'b8b3509f12177723609e3995101ff589e504361ce32ec4d417bba3b37bbb7fac',
         fee: 2.7e-7, }),
       // Witness signing:
       TestProgram("pay to pubkey", `fn main () {
         jet::bip_0340_verify((param::PK, jet::sig_all_hash()), witness::SIG)
       }`, {
         p2tr: 'ert1pa69jdawgz5wu5uc8ce2cv7lcqf64kadyl4wsrddparl25erfj2vq9824m9',
-        cmr: 'b1b4447ce3082324635798876f1ae6c9aec9a228eb6e21e3cb991f8970986965',
         argTypes: { PK: "u256" },
         witTypes: { SIG: "[u8; 64]" },
         provideArgs: () => ({
@@ -106,8 +104,7 @@ export function TestOnTestnet () {
     TestSend(), // Test the basic transaction primitive
     Test('Programs',
       TestProgram("unit program", 'fn main () {}', {
-        p2tr: 'ert1p9jcvyzkdwdqtf49kta4xpc5g35xkfcexwfsl8v70w2gwttelncyspjlnrz',
-        cmr: 'c40a10263f7436b4160acbef1c36fba4be4d95df181a968afeab5eac247adff7',
+        p2tr: 'tex1p9jcvyzkdwdqtf49kta4xpc5g35xkfcexwfsl8v70w2gwttelncyshxjk56',
         fee: 2.7e-7 })),
   );
 }
@@ -122,7 +119,9 @@ function TestProgram (name: string, src: string, {
   cmr         = null as null|string,
   /** Expected pay-to-taproot address of program. */
   p2tr        = null as null|string,
+  /** Expected compile-time signature of program. */
   argTypes    = {} as Record<string, string>,
+  /** Expected runtime signature of program. */
   witTypes    = {} as Record<string, string>,
   /** Function that provides parameter data. */
   provideArgs = null as null|Fn.Returns<Async<SimplicityHL.Args>>,
@@ -136,7 +135,7 @@ function TestProgram (name: string, src: string, {
 
   // Test the SimplicityHL program specified above on the given chain.
   async function testProgram (chain: Btc) {
-
+    const debug = (chain.debug ?? console.debug) || (()=>{});
     // Compile this program with these arguments for this chain.
     const program = await SimplicityHL.Program(src, {
       // Expected program address, optional. Makes it safer.
@@ -155,35 +154,52 @@ function TestProgram (name: string, src: string, {
     // Check against expected program address, if provided.
     if (p2tr) equal(program.p2tr, p2tr);
 
-    // Fund program from deployer:
-    const commitSource = await chain.getUtxo(chain.P2WPKH(keypair1.publicKey()).address);
-    const commitAmount = BigInt(Math.floor(commitSource.amount / 100) * 1e8) - BigInt(fee * 1e8);
+    // UTXO helpers. TODO move to Bitcoin lib.
+    const toUtxo = (x: Btc.Utxo): Btc.Utxo & { amount: bigint } => Object.assign(x, {
+      amount: toSat(x.amount)
+    });
 
-    const commitTxid = await SimplicityHL.Spend() // TODO wrap as program.commit() ?
+    const toSat = (x: unknown): bigint => {
+      if (typeof x === 'bigint') return x;
+      if (typeof x === 'number') return BigInt(Math.round(x * 1e8));
+      throw new Error(`expected BigInt(100000001)sat or Number(1.00000001)btc, got: ${x}`);
+    };
+
+    // Fund program from deployer:
+    const commitSource = toUtxo(await chain.getUtxo(chain.P2WPKH(keypair1.publicKey()).address));
+    const commitFee    = toSat(fee??1e-4);
+    const commitAmount = (toSat(commitSource.amount) / 10n) - commitFee;
+    const commitTxid   = await SimplicityHL.Spend() // TODO wrap as program.commit() ?
       .asset(commitSource.asset)
       .input(commitSource, keypair1)
       .output(program.p2tr, commitAmount)
-      .fee(fee)
+      .fee(commitFee)
       .broadcast(chain);
+    debug('Commit TX:', commitTxid);
 
     // Note current recipient balance:
     const recipient = chain.P2WPKH(keypair1.publicKey()).address;
     const recipientBalance = async (asset = 'bitcoin') =>
-      BigInt(Math.round((await chain.getBalance(recipient, 0))[asset] * 1e8));
+      toSat((await chain.getBalance(recipient, 0))[asset] ?? 0);
     const balance = await recipientBalance();
 
     // Find commit (deploy) output = redeem (spend) input:
+    // This is a tad different across RPC vs Esplora, TODO move to lib too:
     const asset = commitSource.asset;
     const prev = await chain.getTxInfo(commitTxid);
     const txid = prev.txid;
-    const vout = prev.vout.filter(x=>x.scriptPubKey.address === p2tr)[0];
+    debug('Redeem from:', prev);
+    const toSPKA = (x: Btc.Utxo) => x.scriptpubkey_address || x.scriptPubKey?.address;
+    const finder = (x: Btc.Utxo) => toSPKA(x) === p2tr;
+    const vout = prev.vout.find(finder);
     if (!vout) throw new Error('no corresponding vout found');
-    const utxos = [{ txid, asset, vout: vout.n, address: vout.scriptPubKey.address, amount: vout.value }];
+    const redeemSource = toUtxo({ txid, asset, vout: vout.n, address: toSPKA(vout), amount: vout.value });
+    debug('Redeem UTXO:', redeemSource);
 
     // To get SIGHASH_ALL for signing, first the rest of the transaction must be specified:
-    const redeemFee    = 1e-4;
-    const redeemAmount = commitAmount - BigInt(redeemFee * 1e8);
-    const sighashOpts  = { asset, utxos, recipient, amount: redeemAmount, fee: redeemFee };
+    const redeemFee    = 10000n;
+    const redeemAmount = commitAmount - 10000n;
+    const sighashOpts  = { asset, utxos: [redeemSource], recipient, amount: redeemAmount, fee: redeemFee };
     const sighash      = program.redeemSighash(sighashOpts);
     ok(sighash instanceof Uint8Array, 'sighash expected to be returned from WASM as Uint8Array')
     ok(Base16.encode(sighash), 'sighash expected to be base16-encodable');

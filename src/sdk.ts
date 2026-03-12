@@ -96,6 +96,12 @@ export function Spend (): Spend {
       if (!asset) {
         throw new Error('use .asset(id) first to assert asset id')
       }
+      if (typeof y === 'string' && isNaN(Number(y))) {
+        throw new Error(`.output(address, amount <- must be numeric, got ${y}`)
+      }
+      if ((typeof y === 'bigint' && y < 0n) || Number(y) <= 0) {
+        throw new Error('.output(address, amount <- must be >0')
+      }
       address = x;
       amount = y;
       return spend;
