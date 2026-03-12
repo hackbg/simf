@@ -28,21 +28,6 @@ export function TestWasm () {
     }));
 }
 
-// Test the spend helper.
-function TestSend (amount = 3000n, fee = 12000n) {
-  return Fn.Name(`Spend ${amount} for ${fee}`, testSend);
-  async function testSend (chain: Btc) {
-    const from  = chain.P2WPKH(keypair1.publicKey()).address;
-    const to    = chain.P2WPKH(keypair2.publicKey()).address;
-    const utxo  = await chain.getUtxo(from);
-    return Object.assign(chain, await SimplicityHL.Spend()
-      .asset(utxo.asset)
-      .input(utxo, keypair1)
-      .output(to, amount)
-      .fee(fee).broadcast(chain));
-  }
-}
-
 // Self-explanatory.
 export function TestOnLocalnet () {
   // Tests that run on temporary localnet:
@@ -109,6 +94,21 @@ export function TestOnTestnet () {
   );
 }
 
+// Test the spend helper.
+function TestSend (amount = 3000n, fee = 12000n) {
+  return Fn.Name(`Spend ${amount} for ${fee}`, testSend);
+  async function testSend (chain: Btc) {
+    const from = chain.P2WPKH(keypair1.publicKey()).address;
+    const to   = chain.P2WPKH(keypair2.publicKey()).address;
+    const utxo = await chain.getUtxo(from);
+    return Object.assign(chain, await SimplicityHL.Spend()
+      .asset(utxo.asset)
+      .input(utxo, keypair1)
+      .output(to, amount)
+      .fee(fee).broadcast(chain));
+  }
+}
+
 /** Define example program. */
 function TestProgram (name: string, src: string, {
   /** Program runs that should fail. */
@@ -154,52 +154,58 @@ function TestProgram (name: string, src: string, {
     // Check against expected program address, if provided.
     if (p2tr) equal(program.p2tr, p2tr);
 
-    // UTXO helpers. TODO move to Bitcoin lib.
-    const toUtxo = (x: Btc.Utxo): Btc.Utxo & { amount: bigint } => Object.assign(x, {
-      amount: toSat(x.amount)
-    });
-
-    const toSat = (x: unknown): bigint => {
-      if (typeof x === 'bigint') return x;
-      if (typeof x === 'number') return BigInt(Math.round(x * 1e8));
-      throw new Error(`expected BigInt(100000001)sat or Number(1.00000001)btc, got: ${x}`);
-    };
-
     // Fund program from deployer:
-    const commitSource = toUtxo(await chain.getUtxo(chain.P2WPKH(keypair1.publicKey()).address));
-    const commitFee    = toSat(fee??1e-4);
-    const commitAmount = (toSat(commitSource.amount) / 10n) - commitFee;
+    const commitSource = Btc.Utxo(await chain.getUtxo(chain.P2WPKH(keypair1.publicKey()).address));
+    const commitFee    = Btc.toSat(fee??1e-4);
+    const commitAmount = (Btc.toSat(commitSource.amount) / 10n) - commitFee;
     const commitTxid   = await SimplicityHL.Spend() // TODO wrap as program.commit() ?
-      .asset(commitSource.asset)
-      .input(commitSource, keypair1)
-      .output(program.p2tr, commitAmount)
-      .fee(commitFee)
-      .broadcast(chain);
+      .asset(commitSource.asset).input(commitSource, keypair1)
+      .output(program.p2tr, commitAmount).fee(commitFee).broadcast(chain);
     debug('Commit TX:', commitTxid);
 
     // Note current recipient balance:
     const recipient = chain.P2WPKH(keypair1.publicKey()).address;
     const recipientBalance = async (asset = 'bitcoin') =>
-      toSat((await chain.getBalance(recipient, 0))[asset] ?? 0);
+      Btc.toSat((await chain.getBalance(recipient, 0))[asset] ?? 0);
     const balance = await recipientBalance();
 
     // Find commit (deploy) output = redeem (spend) input:
     // This is a tad different across RPC vs Esplora, TODO move to lib too:
     const asset = commitSource.asset;
-    const prev = await chain.getTxInfo(commitTxid);
+
+    // Nasty wait-for-TX loop because of potential race condition between Esplora endpoints
+    let prev;
+    let retries = 30;
+    while (retries > 0) try {
+      prev = await chain.getTxInfo(commitTxid);
+      break;
+    } catch (e) {
+      retries--;
+      debug(e);
+      debug('Waiting for tx', commitTxid);
+      await sleep(1000);
+    }
     const txid = prev.txid;
+
     debug('Redeem from:', prev);
     const toSPKA = (x: Btc.Utxo) => x.scriptpubkey_address || x.scriptPubKey?.address;
-    const finder = (x: Btc.Utxo) => toSPKA(x) === p2tr;
+    let index = null;
+    const finder = (x: Btc.Utxo, i: number) => {
+      if (toSPKA(x) === p2tr) {
+        index = i;
+        return true;
+      }
+    };
     const vout = prev.vout.find(finder);
     if (!vout) throw new Error('no corresponding vout found');
-    const redeemSource = toUtxo({ txid, asset, vout: vout.n, address: toSPKA(vout), amount: vout.value });
+    const redeemSource = Btc.Utxo({ txid, asset, vout: index, address: toSPKA(vout), amount: vout.value });
     debug('Redeem UTXO:', redeemSource);
 
     // To get SIGHASH_ALL for signing, first the rest of the transaction must be specified:
-    const redeemFee    = 10000n;
-    const redeemAmount = commitAmount - 10000n;
+    const redeemFee    = 1000n;
+    const redeemAmount = commitAmount - redeemFee;
     const sighashOpts  = { asset, utxos: [redeemSource], recipient, amount: redeemAmount, fee: redeemFee };
+    debug('Redeem opts:', sighashOpts);
     const sighash      = program.redeemSighash(sighashOpts);
     ok(sighash instanceof Uint8Array, 'sighash expected to be returned from WASM as Uint8Array')
     ok(Base16.encode(sighash), 'sighash expected to be base16-encodable');
@@ -213,9 +219,10 @@ function TestProgram (name: string, src: string, {
     }
 
     // Spend from program:
-    const redeemTx = program.redeemTx({ ...sighashOpts, witness });
+    const { hex, ...redeemTx } = program.redeemTx({ ...sighashOpts, witness });
+    debug('Redeeming:', redeemTx);
     // TX is expected to pass
-    await chain.broadcast(redeemTx.hex);
+    await chain.broadcast(hex);
     // Balance is expected to increase
     equal(await recipientBalance(), balance + redeemAmount);
   }

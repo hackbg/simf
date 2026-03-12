@@ -110,19 +110,21 @@ export function Spend (): Spend {
       fee = x;
       return spend;
     },
-    async broadcast (chain: Btc) {
+    async broadcast (chain: Btc): Promise<string> {
       const debug = (chain.debug ?? console.debug) || (() => {});
       if (!utxo) throw new Error('no input specified')
       if (!address || !amount) throw new Error('no output specified')
       if (!fee) throw new Error('no fee specified')
       const sender = chain.P2WPKH(signer.publicKey()).address;
       const options = { recipient: address, sender, utxos: [utxo], asset: utxo.asset, amount, fee };
-      debug('Broadcasting:', options);
+      debug('Constructing and signing:', options);
       const { sendSigned } = await Wasm();
-      const { hex } = sendSigned(signer, options);
+      const { hex, ...signed } = sendSigned(signer, options);
+      debug('Broadcasting:', signed);
       const tx = await chain.broadcast(hex);
-
+      return tx;
       // TODO: Post-broadcast validation?
+      // This was previously a sanity check in the test suite:
       //function assertTxOuts (
         //tx: { hex: unknown, vout: unknown[] },
         //p2tr:       string,
@@ -147,8 +149,6 @@ export function Spend (): Spend {
           //return x.value === cost;
         //}
       //}
-
-      return tx;
     }
   };
   return spend;
