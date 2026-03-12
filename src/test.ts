@@ -98,14 +98,27 @@ export function TestOnTestnet () {
 function TestSend (amount = 1000n, fee = 1000n) {
   return Fn.Name(`Spend ${amount} for ${fee}`, testSend);
   async function testSend (chain: Btc) {
+    const debug = (chain.debug ?? console.debug) || (()=>{});
     const from = chain.P2WPKH(keypair1.publicKey()).address;
     const to   = chain.P2WPKH(keypair2.publicKey()).address;
     const utxo = await chain.getUtxo(from);
-    return Object.assign(chain, await SimplicityHL.Spend()
+    const sent = await SimplicityHL.Spend()
       .asset(utxo.asset)
       .input(utxo, keypair1)
       .output(to, amount)
-      .fee(fee).broadcast(chain));
+      .fee(fee).broadcast(chain);
+    debug({sent});
+    let retries = 30;
+    while (retries > 0) try {
+      await chain.getTxInfo(sent);
+      break;
+    } catch (e) {
+      retries--;
+      debug(e);
+      debug('Waiting for tx', sent);
+      await sleep(1000);
+    }
+    return Object.assign(chain, sent);
   }
 }
 
@@ -222,8 +235,19 @@ function TestProgram (name: string, src: string, {
     const { hex, ...redeemTx } = program.redeemTx({ ...sighashOpts, witness });
     debug('Redeeming:', redeemTx);
     // TX is expected to pass
-    await chain.broadcast(hex);
+    const redeemTxid = await chain.broadcast(hex);
+    retries = 30;
+    while (retries > 0) try {
+      await chain.getTxInfo(redeemTxid);
+      break;
+    } catch (e) {
+      retries--;
+      debug(e);
+      debug('Waiting for tx', redeemTxid);
+      await sleep(1000);
+    }
     // Balance is expected to increase
+    debug(await chain.getBalance(recipient, 0));
     equal(await recipientBalance(), balance + redeemAmount);
   }
 }
