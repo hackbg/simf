@@ -44,15 +44,6 @@ function TestSend (amount = 3000n, fee = 12000n) {
 }
 
 // Self-explanatory.
-export function TestOnTestnet () {
-  // Tests that touch Liquid Testnet using Esplora
-  return Test('liquidtestnet', () => LiquidTestnet(),
-    TestSend(), // Test the basic transaction primitive
-    'Programs'  // TODO: Separate fixtures to reuse P2TR source/type defs
-  );
-}
-
-// Self-explanatory.
 export function TestOnLocalnet () {
   // Tests that run on temporary localnet:
   return ElementsRegtest.Test({},
@@ -108,6 +99,19 @@ export function TestOnLocalnet () {
   );
 }
 
+// Self-explanatory.
+export function TestOnTestnet () {
+  // Tests that touch Liquid Testnet using Esplora
+  return Test('liquidtestnet', () => LiquidTestnet(),
+    TestSend(), // Test the basic transaction primitive
+    Test('Programs',
+      TestProgram("unit program", 'fn main () {}', {
+        p2tr: 'ert1p9jcvyzkdwdqtf49kta4xpc5g35xkfcexwfsl8v70w2gwttelncyspjlnrz',
+        cmr: 'c40a10263f7436b4160acbef1c36fba4be4d95df181a968afeab5eac247adff7',
+        fee: 2.7e-7 })),
+  );
+}
+
 /** Define example program. */
 function TestProgram (name: string, src: string, {
   /** Program runs that should fail. */
@@ -154,6 +158,7 @@ function TestProgram (name: string, src: string, {
     // Fund program from deployer:
     const commitSource = await chain.getUtxo(chain.P2WPKH(keypair1.publicKey()).address);
     const commitAmount = BigInt(Math.floor(commitSource.amount / 100) * 1e8) - BigInt(fee * 1e8);
+
     const commitTxid = await SimplicityHL.Spend() // TODO wrap as program.commit() ?
       .asset(commitSource.asset)
       .input(commitSource, keypair1)

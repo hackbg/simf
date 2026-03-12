@@ -105,11 +105,13 @@ export function Spend (): Spend {
       return spend;
     },
     async broadcast (chain: Btc) {
+      const debug = (chain.debug ?? console.debug) || (() => {});
       if (!utxo) throw new Error('no input specified')
       if (!address || !amount) throw new Error('no output specified')
       if (!fee) throw new Error('no fee specified')
       const sender = chain.P2WPKH(signer.publicKey()).address;
       const options = { recipient: address, sender, utxos: [utxo], asset: utxo.asset, amount, fee };
+      debug('Broadcasting:', options);
       const { sendSigned } = await Wasm();
       const { hex } = sendSigned(signer, options);
       const tx = await chain.broadcast(hex);
