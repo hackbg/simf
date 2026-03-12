@@ -95,7 +95,7 @@ export function TestOnTestnet () {
 }
 
 // Test the spend helper.
-function TestSend (amount = 3000n, fee = 12000n) {
+function TestSend (amount = 1000n, fee = 1000n) {
   return Fn.Name(`Spend ${amount} for ${fee}`, testSend);
   async function testSend (chain: Btc) {
     const from = chain.P2WPKH(keypair1.publicKey()).address;
@@ -198,7 +198,7 @@ function TestProgram (name: string, src: string, {
     };
     const vout = prev.vout.find(finder);
     if (!vout) throw new Error('no corresponding vout found');
-    const redeemSource = Btc.Utxo({ txid, asset, vout: index, address: toSPKA(vout), amount: vout.value });
+    const redeemSource = { txid, asset, vout: index, address: toSPKA(vout), amount: commitAmount };
     debug('Redeem UTXO:', redeemSource);
 
     // To get SIGHASH_ALL for signing, first the rest of the transaction must be specified:
