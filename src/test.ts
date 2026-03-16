@@ -137,11 +137,11 @@ function TestProgram (name: string, src: string, {
   /** Program runs that should fail. */
   shouldFail  = false as boolean,
   /** Expected deploy fee. */
-  commitFee   = 100n,
+  commitFee   = null as null|number,
   /** Expected commitment Merkle root of program. */
   cmr         = null as null|string,
   /** Expected pay-to-taproot address of program. */
-  address        = null as null|string,
+  address     = null as null|string,
   /** Expected compile-time signature of program. */
   argTypes    = {} as Record<string, string>,
   /** Expected runtime signature of program. */
@@ -177,8 +177,8 @@ function TestProgram (name: string, src: string, {
 
     // Fund program from deployer:
     const sender       = chain.P2WPKH(ALICE.publicKey()).address;
-    const commitSource = await chain.getUtxo(sender, x => x.amount >= commitFee);
-    const commitAmount = commitSource.value - commitFee;
+    const commitAmount = 400n;
+    const commitSource = await chain.getUtxo(sender, x => x.amount >= commitAmount + commitFee);
     const commitTxid   = await SimplicityHL.Spend() // TODO wrap as program.commit() ?
       .asset(commitSource.asset)
       .input(commitSource, ALICE)
@@ -190,7 +190,8 @@ function TestProgram (name: string, src: string, {
 
     // Note current recipient balance:
     const recipient = chain.P2WPKH(ALICE.publicKey()).address;
-    const recipientBalance = async (asset = 'bitcoin') => Btc.toSat((await chain.getBalance(recipient, 0))[asset] ?? 0);
+    const recipientBalance = async (asset = 'bitcoin') =>
+      Btc.toSat((await chain.getBalance(recipient, 0))[asset] ?? 0);
     const balance = await recipientBalance();
 
     // Find commit (deploy) output = redeem (spend) input:
